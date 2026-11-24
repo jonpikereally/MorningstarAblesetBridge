@@ -17,6 +17,7 @@ enum ErrorCode: String, CaseIterable {
     case updateDamagedApp = "MAB-110"
     case updateInstallerFailed = "MAB-111"
     case updateSwapFailed = "MAB-112"
+    case updateStale = "MAB-113"
     // 2xx — talking to AbleSet
     case socketFailed = "MAB-201"
     case portInUse = "MAB-202"
@@ -46,6 +47,7 @@ enum ErrorCode: String, CaseIterable {
         case .updateDamagedApp: return "The downloaded update is damaged."
         case .updateInstallerFailed: return "Couldn't start installing the update."
         case .updateSwapFailed: return "Installing the update failed, so the previous version was kept."
+        case .updateStale: return "The download was an older version than the update announced, so nothing was installed."
         case .socketFailed: return "Couldn't open a network socket to talk to AbleSet."
         case .portInUse: return "MorningstarAblesetBridge's OSC listening port is already used by another app."
         case .ableSetSilent: return "AbleSet isn't answering over OSC."
@@ -65,6 +67,7 @@ enum ErrorCode: String, CaseIterable {
         case .updateSourceUnreachable: return "Check your internet connection and try again."
         case .updateServerError, .updateDownloadFailed: return "Try again in a few minutes. If it keeps happening, download the latest version from GitHub."
         case .updateInfoMalformed, .updateUnpackFailed, .updateMissingApp, .updateWrongApp, .updateDamagedApp: return "The published update is broken. Download the latest version from GitHub instead."
+        case .updateStale: return "GitHub was still serving a cached copy. Wait five minutes and choose Check for Updates again."
         case .updateInstallerFailed, .updateSwapFailed: return "Make sure MorningstarAblesetBridge is in ~/Applications and that the folder isn't locked, then try again."
         case .socketFailed: return "Quit and reopen MorningstarAblesetBridge. If it keeps happening, restart the Mac."
         case .portInUse: return "Quit any other copy of MorningstarAblesetBridge (Ableton Live itself uses 39061), or pick another listening port: defaults write com.jonpike.morningstarablesetbridge listenPort -int 39162, then reopen MorningstarAblesetBridge."

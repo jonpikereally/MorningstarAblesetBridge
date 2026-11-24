@@ -143,6 +143,11 @@ final class Updater {
                     throw AppError(.updateWrongApp,
                                    "bundle ID \(newBundle?.bundleIdentifier ?? "none"), expected \(Bundle.main.bundleIdentifier ?? "?")")
                 }
+                // A cached older zip must not pass for the new version (v1.7).
+                let gotVersion = newBundle?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+                guard gotVersion == manifest.version else {
+                    throw AppError(.updateStale, "downloaded v\(gotVersion), expected v\(manifest.version) from \(zipURL.absoluteString)")
+                }
                 guard let exe = newBundle?.executableURL,
                       FileManager.default.isExecutableFile(atPath: exe.path) else {
                     throw AppError(.updateDamagedApp, "no executable inside \(newApp.lastPathComponent)")

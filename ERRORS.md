@@ -18,6 +18,7 @@ Every error the app, its installer or its updater shows has a code. Codes are ne
 | MAB-110 | The downloaded update is damaged. | The published update is broken. Download the latest version from GitHub instead. |
 | MAB-111 | Couldn't start installing the update. | Make sure MorningstarAblesetBridge is in ~/Applications and that the folder isn't locked, then try again. |
 | MAB-112 | Installing the update failed, so the previous version was kept. | Make sure MorningstarAblesetBridge is in ~/Applications and that the folder isn't locked, then try again. |
+| MAB-113 | The download was an older version than the update announced, so nothing was installed. | GitHub was still serving a cached copy. Wait five minutes and choose Check for Updates again. |
 | MAB-201 | Couldn't open a network socket to talk to AbleSet. | Quit and reopen MorningstarAblesetBridge. If it keeps happening, restart the Mac. |
 | MAB-202 | MorningstarAblesetBridge's OSC listening port is already used by another app. | Quit any other copy of MorningstarAblesetBridge (Ableton Live itself uses 39061), or pick another listening port: defaults write com.jonpike.morningstarablesetbridge listenPort -int 39162, then reopen MorningstarAblesetBridge. |
 | MAB-203 | AbleSet isn't answering over OSC. | Open AbleSet and make sure it's running on this Mac (OSC port 39051). MorningstarAblesetBridge keeps retrying every few seconds. |
