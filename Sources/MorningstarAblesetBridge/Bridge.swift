@@ -134,10 +134,11 @@ enum PedalView {
     }
 
     /// A on the playing pages (2 and 4): AbleSet's real loop state. That A is a
-    /// toggle preset, so both of its names and colours are set; the pedal's own
-    /// toggle position then doesn't matter.
-    static func loopLabel(_ s: SetState) -> (String, UInt8) {
-        s.loop ? ("LOOP ON", yellow) : ("LOOP OFF", yellow)     // yellow both ways, as in the bank (Jon, 2026-11-24)
+    /// toggle preset, so both of its names are set; the pedal's own toggle
+    /// position then doesn't matter. Only names: the app never changes any
+    /// switch's colours (Jon, 2026-11-24), so PLAY, STOP and LOOP keep the bank's.
+    static func loopLabel(_ s: SetState) -> String {
+        s.loop ? "LOOP ON" : "LOOP OFF"
     }
 
     /// Presets of A on the playing pages (page 2 A = 4, page 4 A = 12).
@@ -146,14 +147,12 @@ enum PedalView {
     static func messages(_ s: SetState) -> [(key: String, bytes: [UInt8])] {
         var out: [(String, [UInt8])] = []
         out.append(("bank", Morningstar.setBankName(bankTitle(s))))
-        let (label, led) = loopLabel(s)
+        let label = loopLabel(s)
         let prev = previousLabel(s)
         let next = nextLabel(s)
         for p in loopPresets {
             out.append(("A\(p)", Morningstar.setName(.short, preset: p, label)))
             out.append(("At\(p)", Morningstar.setName(.toggle, preset: p, label)))
-            // Black text on a coloured background, like the bank's own LOOP preset.
-            out.append(("Acol\(p)", Morningstar.colours(preset: p, led: led, ledToggle: led, text: 0, background: led)))
         }
         for page in 0..<pages {
             let o = page * 4

@@ -1,1 +1,1 @@
-{"version": "1.9", "url": "MorningstarAblesetBridge-1.9.zip", "notes": "LOOP stays yellow whether looping is on or off (it used to turn orange when on)."}
+{"version": "1.10", "url": "MorningstarAblesetBridge-1.10.zip", "notes": "The app no longer changes any switch's colours. PLAY, STOP and LOOP always keep the bank's own colours."}

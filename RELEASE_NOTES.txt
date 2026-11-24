@@ -1,1 +1,1 @@
-LOOP stays yellow whether looping is on or off (it used to turn orange when on).
+The app no longer changes any switch's colours. PLAY, STOP and LOOP always keep the bank's own colours.
