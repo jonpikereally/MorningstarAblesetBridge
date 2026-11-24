@@ -62,6 +62,7 @@ Command Line Tools are enough; Xcode isn't needed.
 ./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --probe --write     # + temporary rename / LCD test
 ./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --probe --raw       # + print every incoming MIDI packet
 ./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --find              # which MIDI port answers as the pedal
+./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --colourtest        # LOOP (page 2 A) shows 4 test colour sets, 12 s each
 python3 tools/ableset_osc_probe.py                                                         # dump AbleSet's OSC values
 ./install.sh                                                                               # to ~/Applications, then open it
 ```
@@ -70,7 +71,7 @@ To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`
 
 **Show on Pedal** (menu) switches the BPM and key on or off (shown like `Red 125 (Am)`), separately for the current song (on the screen) and for the previous and next songs (C and D). AbleSet has no key field, so the key comes from, in order: `Key: Am` in the song's description (locator text like `Red {Key: Am}`), a description that's only the key (`Red {Am}`), a tag that looks like a key (`#Am`, `#F#`), or a key in brackets at the end of the name (`Red (Am)`). When none is found, the menu shows what AbleSet sent for the song.
 
-In the menu, **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
+In the menu, **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
 
 Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 

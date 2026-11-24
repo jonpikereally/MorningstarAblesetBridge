@@ -52,6 +52,39 @@ enum Probe {
 }
 
 extension Probe {
+    /// `--colourtest`: sends LOOP (page 2 A, preset 4) a few known colour sets,
+    /// 12 s each, with the test number on the LCD, so Jon can say what each
+    /// looked like. Temporary: changing bank restores the bank's colours.
+    static func colourTest() -> Never {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        let midi = PedalMIDI()
+        midi.match = UserDefaults.standard.string(forKey: "pedalName") ?? "MC4"
+        midi.exactName = UserDefaults.standard.string(forKey: "pedalPort")
+        do { try midi.start() } catch { print("!! \(error)"); exit(1) }
+        guard midi.isConnected else { print("!! MAB-302: no pedal port matching “\(midi.match)”"); exit(2) }
+        print("Pedal: \(midi.destinationName!)")
+        let p = 4
+        let tests: [(String, [UInt8])] = [
+            ("TEST 1: LED red, white text, blue background",
+             Morningstar.message(0x05, op3: UInt8(p), payload: [0x7E, 0x7E, 0x7E, 0x7E, 9, 9, 9, 7, 7, 7, 2, 2, 2])),
+            ("TEST 2: exactly what MAB sends for LOOP ON (yellow, black text)",
+             Morningstar.colours(preset: p, led: 4, ledToggle: 4, text: 0, background: 4)),
+            ("TEST 3: same as 2 but 7F in the first four bytes",
+             Morningstar.message(0x05, op3: UInt8(p), payload: [0x7F, 0x7F, 0x7F, 0x7F, 4, 4, 4, 0, 0, 0, 4, 4, 4])),
+            ("TEST 4: only 9 colour bytes, no toggle/blink/scroll/group",
+             Morningstar.message(0x05, op3: UInt8(p), payload: [4, 4, 4, 0, 0, 0, 4, 4, 4])),
+        ]
+        for (i, t) in tests.enumerated() {
+            print("\n\(t.0)\n   bytes: \(Morningstar.hex(t.1))")
+            midi.send(Morningstar.lcd("COLOUR TEST \(i + 1)", tenths: 30))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            midi.send(t.1)
+            RunLoop.main.run(until: Date().addingTimeInterval(12))
+        }
+        print("\nDone. Change bank and come back to restore LOOP's own colours.")
+        exit(0)
+    }
+
     /// `--find`: the same search as the menu's "Find Pedal Automatically".
     static func find() -> Never {
         setvbuf(stdout, nil, _IOLBF, 0)

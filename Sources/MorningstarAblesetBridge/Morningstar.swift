@@ -254,6 +254,18 @@ final class PedalMIDI {
         return (0..<n).map { sources ? MIDIGetSource($0) : MIDIGetDestination($0) }
     }
 
+    /// Menu "Reconnect to Pedal": drop the current input and output and
+    /// connect again from scratch, as if the pedal had just appeared.
+    func reconnect() {
+        guard !searching else { return }
+        if source != 0 { MIDIPortDisconnectSource(inPort, source) }
+        source = 0; sourceName = nil; sourceConnectStatus = nil
+        destination = 0; destinationName = nil
+        outbox.removeAll()
+        rescan()
+        onConnectionChange()
+    }
+
     func rescan() {
         guard !searching else { return }
         let wanted = match.lowercased()

@@ -11,6 +11,7 @@ let arguments = CommandLine.arguments
 if arguments.contains("--selftest") { exit(SelfTest.run()) }
 if arguments.contains("--probe") { Probe.run(write: arguments.contains("--write")) }
 if arguments.contains("--find") { Probe.find() }
+if arguments.contains("--colourtest") { Probe.colourTest() }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let bridge = Bridge()
@@ -106,6 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggle("Key", PedalView.showNeighbourKey, 4, keyTip)
         show.submenu = sub
         menu.addItem(show)
+        let reconnect = NSMenuItem(title: "Reconnect", action: #selector(reconnectPedal), keyEquivalent: "")
+        reconnect.target = self
+        reconnect.toolTip = "Reopen the pedal's MIDI connection and AbleSet's, then rewrite the pedal's names"
+        menu.addItem(reconnect)
         let resend = NSMenuItem(title: "Resend Everything to Pedal", action: #selector(resend), keyEquivalent: "r")
         resend.target = self
         menu.addItem(resend)
@@ -135,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func resend() { bridge.resendAll() }
+    @objc func reconnectPedal() { bridge.reconnect() }
     @objc private func toggleShow(_ sender: NSMenuItem) {
         switch sender.tag {
         case 1: PedalView.showBPM.toggle()

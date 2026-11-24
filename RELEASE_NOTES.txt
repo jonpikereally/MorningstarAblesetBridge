@@ -1,1 +1,1 @@
-LOOP is yellow when on and gold (a slightly deeper yellow) when off. The app never changes PLAY's or STOP's colour or text.
+New Reconnect item in the menu: reopens the pedal and AbleSet connections from scratch and rewrites the pedal's names.

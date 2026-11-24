@@ -435,6 +435,19 @@ final class Bridge {
         onChange()
     }
 
+    /// Menu: Reconnect. Reopens the pedal's MIDI ports, forgets what the pedal
+    /// was showing, re-subscribes to AbleSet and asks the pedal which bank it's
+    /// on; the names are rewritten as soon as it answers with the bridge bank.
+    func reconnect() {
+        problems.removeAll()
+        midi.reconnect()
+        pedalConnectionChanged()
+        lastAbleSet = Date()
+        subscribe()
+        if midi.isConnected { midi.send(Morningstar.currentBankName()) }
+        onChange()
+    }
+
     /// Menu: resend everything (and trust that the MorningstarAblesetBridge bank is showing).
     func resendAll() {
         inBank = true
