@@ -34,6 +34,10 @@ Load [`bank/AbleSet Bridge.json`](bank/) into a bank slot with the Morningstar e
 
 Map notes 13, 15 and 16 (and 19 if you like) in AbleSet's MIDI mapping. **Don't map CC 110 or CC 111.** B, C and D go straight to AbleSet, so they work even when the bridge isn't running. All four pages are the same.
 
+## Ableton Live side
+
+In Live → Settings → Link, Tempo & MIDI, turn on **Remote** for the pedal's **input** port (MC4 PRO … Bluetooth, or the USB port). On one Mac the bridge received nothing from the pedal until this was on, even though Live doesn't need to map anything. Leave **Sync** off for the pedal's output.
+
 ## AbleSet side
 
 AbleSet's OSC server must be reachable on UDP 39051, which is the default. The bridge subscribes with `/subscribe 127.0.0.1 39161 MorningstarAblesetBridge`. It listens on 39161 because Ableton Live itself uses 39061. If AbleSet restarts, the bridge re-subscribes within a few seconds.
@@ -71,6 +75,7 @@ Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 
 ## Things learned the hard way
 
+- On one playback Mac the bridge heard nothing from the pedal over Bluetooth until Live's **Remote** was switched on for the pedal's input, while sending to the pedal worked the whole time. The bridge's log line "received 0 chunks" is the sign of this.
 - The pedal's SysEx replies only arrive through CoreMIDI's MIDI 1.0 *protocol* input API (`MIDIInputPortCreateWithProtocol`, SysEx as UMP type 3). The older packet-list API received nothing from the MC4 over Bluetooth.
 - The MC4 replies to "get current bank name" (0x30) with op2 `30`, not `21` as the docs say. Byte 5 of every reply is `01`.
 - Preset numbers in the SysEx API count across pages: page 2's A is preset 4. PRO-series names are 32 characters.
