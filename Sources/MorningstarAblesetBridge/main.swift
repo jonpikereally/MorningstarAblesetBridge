@@ -244,6 +244,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let notes = m.notes, !notes.isEmpty { text += "\n\nWhat's new:\n\(notes)" }
         text += "\n\nMorningstarAblesetBridge will quit, update itself and reopen. Your settings are kept, "
             + "and there are no permissions to grant again."
+        if Bundle.main.bundleURL.path.contains("/AppTranslocation/") {
+            text += "\n\nThis copy was opened straight from a download, so the update will be installed in "
+                + "~/Applications. Delete the downloaded copy afterwards."
+        }
         alert.informativeText = text
         alert.addButton(withTitle: "Install and Relaunch")
         alert.addButton(withTitle: "Later")

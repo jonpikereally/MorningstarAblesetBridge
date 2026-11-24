@@ -156,7 +156,7 @@ final class Updater {
                     helper.arguments = [script.path,
                                         String(ProcessInfo.processInfo.processIdentifier),
                                         newApp.path,
-                                        Bundle.main.bundleURL.path,
+                                        Self.installDestination.path,
                                         Bundle.main.bundleIdentifier ?? "com.jonpike.morningstarablesetbridge",
                                         Self.swapFailureMarker.path]
                     try helper.run()
@@ -172,6 +172,18 @@ final class Updater {
     }
 
     // MARK: - Helpers
+
+    /// Where the update goes. Normally the running app's own location, but an
+    /// app opened straight from Downloads runs from a read-only "App
+    /// Translocation" copy that can't be replaced, so that case installs
+    /// to ~/Applications instead (v1.2, after MAB-112 on Jon's laptop).
+    static var installDestination: URL {
+        let here = Bundle.main.bundleURL
+        guard here.path.contains("/AppTranslocation/") else { return here }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true)
+            .appendingPathComponent(here.lastPathComponent)
+    }
 
     private static func read(_ url: URL) throws -> Data {
         if url.isFileURL {
@@ -235,7 +247,11 @@ final class Updater {
     fail() { mkdir -p "$(dirname "$MARKER")"; printf '%s|%s' "$1" "$2" > "$MARKER"; }
     for _ in $(seq 1 150); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done
     rm -rf "$DEST.old"
-    if ! mv "$DEST" "$DEST.old" 2>/dev/null; then
+    mkdir -p "$(dirname "$DEST")"
+    if [ ! -e "$DEST" ]; then
+        # Nothing installed there yet (the old copy ran from App Translocation).
+        /usr/bin/ditto --norsrc "$NEW" "$DEST" 2>/dev/null || fail "MAB-112" "couldn't copy the new version into $DEST"
+    elif ! mv "$DEST" "$DEST.old" 2>/dev/null; then
         fail "MAB-112" "couldn't move $DEST aside to make room for the new version"
     elif ! /usr/bin/ditto --norsrc "$NEW" "$DEST" 2>/dev/null; then
         rm -rf "$DEST"
