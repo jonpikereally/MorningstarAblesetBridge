@@ -103,6 +103,10 @@ final class PedalMIDI {
     var onRaw: ([UInt8]) -> Void = { _ in }
 
     private(set) var destinationName: String?
+    private(set) var sourceName: String?
+    private(set) var sourceConnectStatus: OSStatus?
+    /// Input callbacks seen since launch, counted before any parsing.
+    private(set) var callbacks = 0
     private var client = MIDIClientRef()
     private var inPort = MIDIPortRef()
     private var outPort = MIDIPortRef()
@@ -195,6 +199,7 @@ final class PedalMIDI {
                 if Self.containsMorningstarReply(bytes) { DispatchQueue.main.async { self?.searchHits.insert(name) } }
                 return
             }
+            DispatchQueue.main.async { self?.callbacks += 1 }
             if !bytes.isEmpty { DispatchQueue.main.async { self?.receive(bytes) } }
         }
         guard status == noErr else { throw AppError(.midiFailed, "MIDIInputPortCreate \(status)") }
@@ -257,14 +262,30 @@ final class PedalMIDI {
             return Self.name(ep).lowercased().contains(wanted)
         }
         let dest = Self.endpoints(sources: false).first(where: fits) ?? 0
-        let src = Self.endpoints(sources: true).first(where: fits) ?? 0
+        // Listen to the input that belongs to the same device as the output:
+        // the same MIDI entity first, then the same name, then any match.
+        // (v1.4: picking them separately sent to Bluetooth while listening to
+        // another "MC4" port on Jon's playback laptop, so nothing came back.)
+        let sources = Self.endpoints(sources: true)
+        var src: MIDIEndpointRef = 0
+        if dest != 0 {
+            var destEntity = MIDIEntityRef()
+            if MIDIEndpointGetEntity(dest, &destEntity) == noErr, destEntity != 0 {
+                src = sources.first { var e = MIDIEntityRef(); return MIDIEndpointGetEntity($0, &e) == noErr && e == destEntity } ?? 0
+            }
+            if src == 0 { src = sources.first { Self.name($0) == Self.name(dest) } ?? 0 }
+        }
+        if src == 0 { src = sources.first(where: fits) ?? 0 }
         if src != source {
             if source != 0 { MIDIPortDisconnectSource(inPort, source) }
+            sourceConnectStatus = nil
             if src != 0 {
                 let st = MIDIPortConnectSource(inPort, src, nil)
+                sourceConnectStatus = st
                 if PedalMIDI.debug { FileHandle.standardError.write(Data("[debug] connect source \(Self.name(src)) (inPort \(inPort)) -> \(st)\n".utf8)) }
             }
             source = src
+            sourceName = src == 0 ? nil : Self.name(src)
         }
         let changed = dest != destination
         destination = dest

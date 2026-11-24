@@ -53,6 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         if let name = bridge.midi.destinationName {
             info("Pedal: \(name)")
+            if let input = bridge.midi.sourceName, input != name { info("    Listening to: \(input)") }
+            if bridge.midi.sourceName == nil { info("    No matching MIDI input — the pedal can't be heard") }
             switch bridge.inBank {
             case true?: info("    AbleSet Bridge bank is showing")
             case false?: info("    Another bank is showing (the bridge waits)")

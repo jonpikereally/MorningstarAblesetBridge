@@ -267,7 +267,9 @@ final class Bridge {
     }
 
     private func diagnostics(_ what: String) {
-        let lines = ["diagnostics: \(what) — pedal \(midi.destinationName ?? "?"), AbleSet \(state.playing ? "playing" : "stopped"), "
+        let input = "input \(midi.sourceName ?? "none")" + (midi.sourceConnectStatus.map { " (connect status \($0))" } ?? "")
+            + ", \(midi.callbacks) input callbacks; all inputs: " + PedalMIDI.endpoints(sources: true).map(PedalMIDI.name).joined(separator: " | ")
+        let lines = ["diagnostics: \(what) — pedal \(midi.destinationName ?? "?"), \(input), AbleSet \(state.playing ? "playing" : "stopped"), "
                      + "in-bank \(inBank.map { "\($0)" } ?? "unknown"), received \(rxChunks) chunks, \(rxReplies) good replies, "
                      + "\(rxBadSysex) garbled SysEx, \(pollsUnanswered) unanswered requests, outbox \(midi.queued)",
                      "last pedal traffic:"] + recentRx.map { "  " + $0 }
