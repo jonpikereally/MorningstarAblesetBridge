@@ -135,11 +135,15 @@ enum PedalView {
 
     /// A on the playing pages (2 and 4): AbleSet's real loop state. That A is a
     /// toggle preset, so both of its names are set; the pedal's own toggle
-    /// position then doesn't matter. Only names: the app never changes any
-    /// switch's colours (Jon, 2026-11-24), so PLAY, STOP and LOOP keep the bank's.
+    /// position then doesn't matter. LOOP is always yellow: plain yellow when
+    /// on, gold (a slightly deeper yellow) when off. Jon, 2026-11-24: the app
+    /// must NEVER change PLAY's or STOP's colour or text; only LOOP is touched.
     static func loopLabel(_ s: SetState) -> String {
         s.loop ? "LOOP ON" : "LOOP OFF"
     }
+
+    static let gold: UInt8 = 47
+    static func loopColour(_ s: SetState) -> UInt8 { s.loop ? yellow : gold }
 
     /// Presets of A on the playing pages (page 2 A = 4, page 4 A = 12).
     static let loopPresets = [A + 4, A + 12]
@@ -153,6 +157,9 @@ enum PedalView {
         for p in loopPresets {
             out.append(("A\(p)", Morningstar.setName(.short, preset: p, label)))
             out.append(("At\(p)", Morningstar.setName(.toggle, preset: p, label)))
+            // Black text on a yellow background, like the bank's own LOOP preset.
+            let c = loopColour(s)
+            out.append(("Acol\(p)", Morningstar.colours(preset: p, led: c, ledToggle: c, text: 0, background: c)))
         }
         for page in 0..<pages {
             let o = page * 4

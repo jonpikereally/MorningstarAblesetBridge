@@ -1,1 +1,1 @@
-The app no longer changes any switch's colours. PLAY, STOP and LOOP always keep the bank's own colours.
+LOOP is yellow when on and gold (a slightly deeper yellow) when off. The app never changes PLAY's or STOP's colour or text.
