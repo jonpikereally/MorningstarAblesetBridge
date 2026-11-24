@@ -1,0 +1,105 @@
+import Foundation
+
+/// `--probe`: lists MIDI endpoints, asks the pedal who it is and what its
+/// switches are called, and prints every reply. Read-only unless `--write`,
+/// which renames preset A temporarily and flashes the LCD (both revert when
+/// the pedal changes bank). Must run outside Claude's sandbox (it hides MIDI).
+enum Probe {
+    static func run(write: Bool) -> Never {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        print("MIDI destinations:")
+        PedalMIDI.endpoints(sources: false).forEach { print("  ", PedalMIDI.name($0)) }
+        print("MIDI sources:")
+        PedalMIDI.endpoints(sources: true).forEach { print("  ", PedalMIDI.name($0)) }
+
+        let midi = PedalMIDI()
+        midi.match = UserDefaults.standard.string(forKey: "pedalName") ?? "MC4"
+        midi.onSysex = { b in
+            guard let r = Morningstar.parse(b) else { print("<- (not a Morningstar reply) \(Morningstar.hex(b))"); return }
+            let printable = r.payload.allSatisfy { (32..<127).contains($0) }
+            print(String(format: "<- op2 %02X op3 %02X op4 %02X txn %02X  ", r.op2, r.op3, r.op4, r.txn)
+                  + (printable ? "“\(r.text)”" : Morningstar.hex(r.payload)))
+        }
+        midi.onControlChange = { ch, n, v in print("<- CC \(n) = \(v) on ch \(ch)") }
+        midi.onSendError = { print("!! \($0.code.rawValue) \($0.details)") }
+        if CommandLine.arguments.contains("--raw") { PedalMIDI.debug = true; midi.onRaw = { print("<< raw", Morningstar.hex($0)) } }
+        do { try midi.start() } catch { print("!! \(error)"); exit(1) }
+        guard midi.isConnected else { print("!! MAB-302: no destination containing “\(midi.match)”"); exit(2) }
+        print("Pedal: \(midi.destinationName!)\n")
+
+        func ask(_ label: String, _ bytes: [UInt8]) {
+            midi.send(bytes)
+            print("-> \(label)")
+            RunLoop.main.run(until: Date().addingTimeInterval(0.35))
+        }
+        ask("controller info", Morningstar.controllerInfo())
+        ask("current bank name", Morningstar.currentBankName())
+        for p in 0..<16 { ask("short name preset \(p)", Morningstar.getName(.short, preset: p, txn: UInt8(p))) }
+        ask("toggle name preset 15 (MorningstarAblesetBridge marker)", Morningstar.getName(.toggle, preset: 15, txn: 0x11))
+        if write {
+            ask("TEMP rename preset 0 → “PROBE OK”", Morningstar.setName(.short, preset: 0, "PROBE OK"))
+            ask("TEMP rename preset 4 → “PAGE2 OK”", Morningstar.setName(.short, preset: 4, "PAGE2 OK"))
+            ask("TEMP bank name → “MorningstarAblesetBridge probe”", Morningstar.setBankName("MorningstarAblesetBridge probe"))
+            ask("TEMP LED preset 0 → orange", Morningstar.colours(preset: 0, led: PedalView.orange))
+            ask("LCD message 3 s", Morningstar.lcd("MorningstarAblesetBridge probe", tenths: 30))
+            ask("read back short name preset 0", Morningstar.getName(.short, preset: 0, txn: 0x20))
+        }
+        let wait = CommandLine.arguments.contains("--raw") ? 25.0 : 4.0
+        print("\nListening \(Int(wait)) s more (press a switch to see what it sends)…")
+        RunLoop.main.run(until: Date().addingTimeInterval(wait))
+        exit(0)
+    }
+}
+
+/// `--selftest`: offline checks, runnable in the sandbox.
+enum SelfTest {
+    static func run() -> Int32 {
+        var failures = 0
+        func check(_ ok: Bool, _ what: String) { print(ok ? "ok   " : "FAIL ", what); if !ok { failures += 1 } }
+
+        // The documented Bank Up example: F0 00 21 24 id 00 70 00 00 00 00 00 00 00 00 00 cs F7
+        let bankUp = Morningstar.message(0x00)
+        check(bankUp.count == 18 && bankUp.prefix(7) == [0xF0, 0x00, 0x21, 0x24, 0x09, 0x00, 0x70], "header layout + 18-byte length")
+        let xor = bankUp.dropLast(2).reduce(UInt8(0), ^) & 0x7F
+        check(bankUp[16] == xor, "checksum is XOR of every byte before it, & 0x7F (= \(String(format: "%02X", xor)))")
+        check(Morningstar.parse(bankUp) != nil, "parser accepts its own messages")
+        var bad = bankUp; bad[16] ^= 1
+        check(Morningstar.parse(bad) == nil, "parser rejects a bad checksum")
+
+        let name = Morningstar.setName(.short, preset: 6, "Café “Song”")
+        check(name.count == 16 + 32 + 2, "names are padded to 32 bytes")
+        check(name[7] == 0x01 && name[8] == 6 && name[9] == 0, "short name: op2 01, op3 preset, op4 00 (not saved)")
+        check(String(decoding: name[16..<27], as: UTF8.self) == "Cafe \"Song\"", "accents and curly quotes become ASCII")
+        check(name[16...].dropLast(2).allSatisfy { $0 < 0x80 }, "payload is 7-bit")
+        check(Morningstar.setName(.long, preset: 0, "x")[7] == 0x03, "long name op2 03")
+        check(Morningstar.getName(.toggle, preset: 15)[7] == 0x22, "get toggle name op2 22")
+        let lcd = Morningstar.lcd(String(repeating: "x", count: 40), tenths: 25)
+        check(lcd[7] == 0x11 && lcd[9] == 25 && lcd.count == 16 + 20 + 2, "LCD message: op2 11, duration in op4, max 20 chars")
+        let col = Morningstar.colours(preset: 2, led: 8)
+        check(col[7] == 0x05 && col[11] == 0 && col.count == 16 + 13 + 2, "colours: op2 05, save flag (op6) 00, 13-byte payload")
+
+        var s = SetState()
+        for m in [OSCMessage(address: "/setlist/songs", args: [.string("One"), .string("Two"), .string("Three")]),
+                  OSCMessage(address: "/setlist/activeSongIndex", args: [.float(1)]),
+                  OSCMessage(address: "/setlist/activeSongName", args: [.string("Two")]),
+                  OSCMessage(address: "/setlist/nextSongName", args: [.string("Three")]),
+                  OSCMessage(address: "/global/tempo", args: [.float(120)]),
+                  OSCMessage(address: "/global/isPlaying", args: [.int(1)])] { s.apply(m) }
+        check(s.previousName == "One" && PedalView.bankTitle(s) == "Two 120", "state → previous song + bank title")
+        check(PedalView.aLabel(s).0 == "LOOP OFF", "A says LOOP OFF while playing")
+        s.apply(OSCMessage(address: "/setlist/loopEnabled", args: [.bool(true)]))
+        check(PedalView.aLabel(s).0 == "LOOP ON", "A says LOOP ON when loop is on")
+        s.apply(OSCMessage(address: "/global/isPlaying", args: [.float(0)]))
+        check(PedalView.aLabel(s).0 == "PLAY", "A says PLAY when stopped")
+        let msgs = PedalView.messages(s)
+        check(msgs.count == 1 + 4 * 6, "one bank name + 6 messages per page")
+        check(Set(msgs.map { $0.bytes[8] }.filter { _ in true }).isSuperset(of: [0, 4, 8, 12, 2, 6, 10, 14]), "all four pages are covered")
+
+        let sub = OSCMessage(address: "/subscribe", args: [.string("127.0.0.1"), .int(39161), .string("MorningstarAblesetBridge")])
+        let back = OSCMessage.decode(sub.encoded())
+        check(back.first?.address == "/subscribe" && back.first?.args == sub.args, "OSC /subscribe round-trips")
+
+        print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
+        return failures == 0 ? 0 : 1
+    }
+}
