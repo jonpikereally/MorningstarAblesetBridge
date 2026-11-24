@@ -1,1 +1,1 @@
-Over USB the MC4 PRO shows four MIDI ports and only Port 4 answers; automatic mode now finds the port that answers. Adds the --colourtest command for checking LOOP's colours.
+LOOP uses colours 14 (on) and 13 (off), which show as yellow on the MC4 PRO. The pedal's colour numbers don't match Morningstar's published chart. The colour test can now sweep every colour number (--colourtest --sweep).

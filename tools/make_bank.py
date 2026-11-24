@@ -44,6 +44,9 @@ BANK_CC = 111
 # middle of the screen (Jon, 2026-11-24). An empty name might fall back to the short name.
 BLANK_LONG = " "
 LIME, YELLOW, WHITE, RED = 1, 4, 7, 9
+# Jon's MC4 PRO shows colour numbers differently from the published chart
+# (swept 2026-11-24): 14 is yellow and 13 a slightly different yellow there.
+PEDAL_YELLOW, PEDAL_YELLOW_2 = 14, 13
 
 
 def msg(t, data=(), action=PRESS, channel=1):
@@ -69,14 +72,14 @@ def note(n, held=False):
 
 
 def preset(num, short, long, led, bg, msgs, name=0, toggle=False, toggle_name="",
-           led_toggle=0, group=0, is_exp=False, shift=("", 0)):
+           led_toggle=0, group=0, is_exp=False, shift=("", 0), toggle_bg=0, toggle_name_colour=WHITE):
     return {
         "presetNum": num, "bankNum": 0, "isExp": is_exp,
         "shortName": short, "toggleName": toggle_name, "longName": long, "shiftName": shift[0],
         "toToggle": toggle, "toBlink": False, "toMsgScroll": False, "toggleGroup": group,
         "ledColor": led, "ledToggleColor": led_toggle, "ledShiftColor": 0,
-        "nameColor": name, "nameToggleColor": WHITE, "nameShiftColor": WHITE,
-        "backgroundColor": bg, "toggleBackgroundColor": 0, "shiftBackgroundColor": shift[1],
+        "nameColor": name, "nameToggleColor": toggle_name_colour, "nameShiftColor": WHITE,
+        "backgroundColor": bg, "toggleBackgroundColor": toggle_bg, "shiftBackgroundColor": shift[1],
         "msgArray": fill(msgs),
     }
 
@@ -91,8 +94,9 @@ for page in (1, 2, 3, 4):
     playing = page % 2 == 0
     other = page - 1 if playing else page + 1
     if playing:
-        presets.append(preset(o, "LOOP ON", "LOOP ON", YELLOW, YELLOW, note(NOTE_LOOP),
-                              toggle=True, toggle_name="LOOP OFF", led_toggle=YELLOW, group=1))
+        presets.append(preset(o, "LOOP ON", "LOOP ON", PEDAL_YELLOW, PEDAL_YELLOW, note(NOTE_LOOP),
+                              toggle=True, toggle_name="LOOP OFF", led_toggle=PEDAL_YELLOW_2, group=1,
+                              toggle_bg=PEDAL_YELLOW_2, toggle_name_colour=0))
     else:
         presets.append(preset(o, "PLAY", "Play -> C0", LIME, LIME, note(NOTE_PLAY) + [flip(other)]))
     presets.append(preset(o + 1, "STOP", "STOP -> C#0", RED, RED,
@@ -135,7 +139,8 @@ if "--check" in sys.argv:
         ref = json.load(f)["data"]["bank"]["presetArray"]
     # C/D long names are blank on purpose; everything else must match.
     diffs = [(p["presetNum"], k) for p, r in zip(presets, ref) for k in p
-             if p[k] != r.get(k) and not (k == "longName" and p["presetNum"] % 4 in (2, 3))]
+             if p[k] != r.get(k) and not (k == "longName" and p["presetNum"] % 4 in (2, 3))
+             and not (p["presetNum"] % 8 == 4 and "olor" in k)]     # LOOP colours: pedal-tested yellows
     print("presets identical to the reference" if not diffs else "differences: %s" % diffs)
     sys.exit(1 if diffs else 0)
 

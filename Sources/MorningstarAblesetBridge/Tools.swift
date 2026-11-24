@@ -72,6 +72,41 @@ extension Probe {
         guard midi.isConnected else { print("!! MAB-302: no pedal port matching “\(midi.match)”"); exit(2) }
         print("Pedal: \(midi.destinationName!)")
         let p = 4
+        if let i = CommandLine.arguments.firstIndex(of: "--show") {
+            // --show "LABEL:bg:text:led,LABEL:bg:text:led,…" each for --seconds (default 8), twice.
+            let args = CommandLine.arguments
+            let each = args.firstIndex(of: "--seconds").flatMap { j in j + 1 < args.count ? Double(args[j + 1]) : nil } ?? 8
+            let items = (i + 1 < args.count ? args[i + 1] : "").split(separator: ",").map { $0.split(separator: ":").map(String.init) }
+            for _ in 0..<2 {
+                for it in items where it.count == 4 {
+                    guard let bg = UInt8(it[1]), let tx = UInt8(it[2]), let led = UInt8(it[3]) else { continue }
+                    print("\(it[0])  background \(bg), text \(tx), light \(led)")
+                    midi.send(Morningstar.setName(.short, preset: p, it[0]))
+                    midi.send(Morningstar.setName(.toggle, preset: p, it[0]))
+                    midi.send(Morningstar.colours(preset: p, led: led, ledToggle: led, text: tx, background: bg))
+                    RunLoop.main.run(until: Date().addingTimeInterval(each))
+                }
+            }
+            print("\nDone. Change bank and come back to restore LOOP.")
+            exit(0)
+        }
+        if CommandLine.arguments.contains("--sweep") {
+            // Every solid colour number on LOOP's background (text and light the
+            // same number), with the number as LOOP's name, 3 s each.
+            let args = CommandLine.arguments
+            let from = args.firstIndex(of: "--from").flatMap { i in i + 1 < args.count ? UInt8(args[i + 1]) : nil } ?? 0
+            let values: [UInt8] = (Array(0...14) + Array(29...63)).filter { $0 >= from }
+            let each = args.firstIndex(of: "--seconds").flatMap { i in i + 1 < args.count ? Double(args[i + 1]) : nil } ?? 3
+            for v in values {
+                print("BG \(v)  (\(Int(each)) s)")
+                midi.send(Morningstar.setName(.short, preset: p, "BG \(v)"))
+                midi.send(Morningstar.setName(.toggle, preset: p, "BG \(v)"))
+                midi.send(Morningstar.colours(preset: p, led: v, ledToggle: v, text: v == 0 ? 7 : 0, background: v))
+                RunLoop.main.run(until: Date().addingTimeInterval(each))
+            }
+            print("\nDone. Change bank and come back to restore LOOP.")
+            exit(0)
+        }
         let tests: [(String, [UInt8])] = [
             ("TEST 1: LED red, white text, blue background",
              Morningstar.message(0x05, op3: UInt8(p), payload: [0x7E, 0x7E, 0x7E, 0x7E, 9, 9, 9, 7, 7, 7, 2, 2, 2])),
@@ -181,9 +216,9 @@ enum SelfTest {
         check(!msgs.contains { $0.bytes[7] == 0x03 }, "no long names are ever written")
         let colourOps = msgs.filter { $0.bytes[7] == 0x05 }
         check(Set(colourOps.map { $0.bytes[8] }) == [4, 12], "only LOOP (pages 2/4) is ever recoloured")
-        check(PedalView.loopColour(s) == PedalView.yellow, "LOOP ON is yellow")
+        check(PedalView.loopColour(s) == 14, "LOOP ON is 14 (yellow on Jon's pedal)")
         var off = s; off.loop = false
-        check(PedalView.loopColour(off) == PedalView.gold && PedalView.gold != PedalView.yellow, "LOOP OFF is a slightly different yellow (gold)")
+        check(PedalView.loopColour(off) == 13, "LOOP OFF is 13 (a slightly different yellow on Jon's pedal)")
         let touched = Set(msgs.dropFirst().map { $0.bytes[8] })
         check(touched == [4, 12, 2, 6, 10, 14, 3, 7, 11, 15], "only LOOP (pages 2/4), C and D are relabelled")
         check(!touched.contains(0) && !touched.contains(8) && !touched.contains(1), "PLAY and STOP are left as the bank has them")

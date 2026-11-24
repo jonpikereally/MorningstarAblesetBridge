@@ -142,8 +142,12 @@ enum PedalView {
         s.loop ? "LOOP ON" : "LOOP OFF"
     }
 
-    static let gold: UInt8 = 47
-    static func loopColour(_ s: SetState) -> UInt8 { s.loop ? yellow : gold }
+    /// Colour numbers as Jon's MC4 PRO actually shows them (swept on the pedal,
+    /// 2026-11-24). They don't match Morningstar's published chart: there 4 is
+    /// yellow, but on this pedal 4 is very dark burgundy and 14 is yellow.
+    static let loopOnColour: UInt8 = 14     // yellow
+    static let loopOffColour: UInt8 = 13    // a slightly different yellow
+    static func loopColour(_ s: SetState) -> UInt8 { s.loop ? loopOnColour : loopOffColour }
 
     /// Presets of A on the playing pages (page 2 A = 4, page 4 A = 12).
     static let loopPresets = [A + 4, A + 12]

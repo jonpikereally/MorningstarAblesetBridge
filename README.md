@@ -14,7 +14,7 @@ A  PLAY             B  STOP            A  LOOP ON / OFF    B  STOP
 - **A** on page 1 is **PLAY**: it plays, then the pedal flips to page 2, where **A** is **LOOP** (loop on/off). **B** (STOP) stops and flips to the other page.
 - The bank name on the pedal's screen shows the current song and tempo, and a new song's name flashes on screen when the song changes.
 - **C** and **D** are renamed to the previous and next song names.
-- **LOOP** shows AbleSet's real loop state: **LOOP ON** (yellow) or **LOOP OFF** (gold, a slightly deeper yellow). Without the app it shows the pedal's own guess.
+- **LOOP** shows AbleSet's real loop state: **LOOP ON** (yellow, colour 14) or **LOOP OFF** (a slightly different yellow, colour 13). Without the app it shows the pedal's own guess.
 - The app never changes PLAY's or STOP's colour or text. They always look exactly as the bank sets them.
 - The pedal only knows its own presses. If AbleSet stops by itself (end of song, or stopped from the computer), the pedal stays on page 2 until you press STOP, with or without the app.
 
@@ -84,6 +84,8 @@ Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 | `ableSetHost` | 127.0.0.1 | AbleSet's computer |
 
 ## Things learned the hard way
+
+- On the MC4 PRO tested, colour numbers don't match Morningstar's published colour chart, for bank files and SysEx alike: 4, "yellow" in the chart, shows as very dark burgundy, and 14 is yellow. `--colourtest --sweep [--seconds N] [--from N]` steps LOOP through every number so you can see your own pedal's colours, and `--colourtest --show "NAME:bg:text:light,…"` shows chosen combinations.
 
 - On one playback Mac the bridge heard nothing from the pedal over Bluetooth until Live's **Remote** was switched on for the pedal's input, while sending to the pedal worked the whole time. The bridge's log line "received 0 chunks" is the sign of this.
 - The pedal's SysEx replies only arrive through CoreMIDI's MIDI 1.0 *protocol* input API (`MIDIInputPortCreateWithProtocol`, SysEx as UMP type 3). The older packet-list API received nothing from the MC4 over Bluetooth.
