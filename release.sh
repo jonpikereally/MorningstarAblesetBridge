@@ -90,8 +90,11 @@ SET UP
 1. Load the AbleSet Bridge bank (bank/AbleSet Bridge.json in the GitHub repo)
    into a bank slot with the Morningstar editor.
 2. Connect the MC4 PRO to this Mac over Bluetooth MIDI or USB.
-3. In AbleSet, map notes 13 (stop), 15 (previous song) and 16 (next song)
-   on channel 1. Don't map CC 110 or CC 111.
+3. In AbleSet, map notes 12 (play), 13 (stop), 14 (loop), 15 (previous song)
+   and 16 (next song) on channel 1. Don't map CC 111.
+4. In Ableton Live's MIDI settings, turn on Remote for the pedal's input.
+
+The pedal controls AbleSet by itself; the app only changes what it shows.
 
 PRIVACY
 The app talks only to AbleSet on your own Mac (UDP, 127.0.0.1) and to the
