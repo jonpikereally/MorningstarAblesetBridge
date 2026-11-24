@@ -15,13 +15,21 @@ struct SetState: Equatable {
     var nextTags: [String] = []
     var songTempos: [Double] = []
     var songDescriptions: [String] = []
+    // Which song each description / tag list arrived for (v1.18): AbleSet sends
+    // them separately, so a song without them would otherwise show the
+    // previous song's key.
+    var songDescriptionFor = ""
+    var songTagsFor = ""
+    var nextDescriptionFor = ""
+    var nextTagsFor = ""
 
     /// A key, from (in order): "Key: Am" in the description (locator text like
     /// `Red {Key: Am}`), a description that is only a key (`{Am}`), a tag that
     /// looks like a key (`#Am`, `#F#`, `#Bbm`), or a key in brackets at the
     /// end of the song name (`Red (Am)`, `Red [F#m]`).
     static func key(description: String, tags: [String], name: String) -> String? {
-        let keyLike = #"^[A-Ga-g][#b♯♭]?\s*(m|min|minor|maj|major|M)?$"#
+        // Keys start with a capital: a stray "#e" tag or "(a)" isn't a key.
+        let keyLike = #"^[A-G][#b♯♭]?\s*(m|min|minor|maj|major|M)?$"#
         if let r = description.range(of: #"(?i)\bkey\s*[:=]\s*([^,;}\]\)]+)"#, options: .regularExpression) {
             let m = description[r]
             if let colon = m.firstIndex(where: { $0 == ":" || $0 == "=" }) {
@@ -33,7 +41,7 @@ struct SetState: Equatable {
         if d.range(of: keyLike, options: .regularExpression) != nil { return d }
         if let t = tags.map({ $0.hasPrefix("#") ? String($0.dropFirst()) : $0 })
             .first(where: { $0.range(of: keyLike, options: .regularExpression) != nil }) { return t }
-        if let r = name.range(of: #"[\(\[]\s*[A-Ga-g][#b♯♭]?\s*(m|min|minor|maj|major|M)?\s*[\)\]]\s*$"#, options: .regularExpression) {
+        if let r = name.range(of: #"[\(\[]\s*[A-G][#b♯♭]?\s*(m|min|minor|maj|major|M)?\s*[\)\]]\s*$"#, options: .regularExpression) {
             return name[r].trimmingCharacters(in: CharacterSet(charactersIn: "()[] "))
         }
         return nil
@@ -44,9 +52,13 @@ struct SetState: Equatable {
         return list[i]
     }
 
+    /// The current song's key. The setlist's per-song descriptions come first
+    /// (always about the right song); AbleSet's active-song description and
+    /// tags only count if they arrived for this song.
     var key: String? {
-        Self.key(description: songDescription.isEmpty ? (listed(songDescriptions, songIndex) ?? "") : songDescription,
-                 tags: songTags, name: songName)
+        let listedDesc = songs.isEmpty ? nil : listed(songDescriptions, songIndex)
+        let desc = listedDesc ?? (songDescriptionFor == songName ? songDescription : "")
+        return Self.key(description: desc, tags: songTagsFor == songName ? songTags : [], name: songName)
     }
 
     var previousName: String? {
@@ -71,9 +83,11 @@ struct SetState: Equatable {
 
     var nextTempo: Double? { songIndex.flatMap { listed(songTempos, $0 + 1) } }
     var nextKey: String? {
-        guard let nextName = nextSong else { return nil }
-        let d = nextDescription.isEmpty ? (songIndex.flatMap { listed(songDescriptions, $0 + 1) } ?? "") : nextDescription
-        return Self.key(description: d, tags: nextTags, name: nextName)
+        guard let name = nextSong else { return nil }
+        let listedDesc = songs.isEmpty ? nil : songIndex.flatMap { listed(songDescriptions, $0 + 1) }
+        let fresh = name == nextName       // AbleSet's "next" is the same song
+        let d = listedDesc ?? (fresh && nextDescriptionFor == nextName ? nextDescription : "")
+        return Self.key(description: d, tags: fresh && nextTagsFor == nextName ? nextTags : [], name: name)
     }
 
     mutating func apply(_ m: OSCMessage) {
@@ -85,10 +99,10 @@ struct SetState: Equatable {
         case "/setlist/nextSongName": nextName = m.text ?? ""
         case "/setlist/activeSongIndex": songIndex = m.number.map { Int($0) }
         case "/setlist/songs": songs = m.args.compactMap { $0.text }
-        case "/setlist/activeSongDescription": songDescription = m.text ?? ""
-        case "/setlist/activeSongTags": songTags = m.args.compactMap { $0.text }
-        case "/setlist/nextSongDescription": nextDescription = m.text ?? ""
-        case "/setlist/nextSongTags": nextTags = m.args.compactMap { $0.text }
+        case "/setlist/activeSongDescription": songDescription = m.text ?? ""; songDescriptionFor = songName
+        case "/setlist/activeSongTags": songTags = m.args.compactMap { $0.text }; songTagsFor = songName
+        case "/setlist/nextSongDescription": nextDescription = m.text ?? ""; nextDescriptionFor = nextName
+        case "/setlist/nextSongTags": nextTags = m.args.compactMap { $0.text }; nextTagsFor = nextName
         case "/setlist/songTempos": songTempos = m.args.compactMap { $0.number }
         case "/setlist/songDescriptions": songDescriptions = m.args.map { $0.text ?? "" }
         default: break
@@ -248,7 +262,10 @@ final class Bridge {
             clear(.ableSetSilent)
         }
         let before = state
-        msgs.forEach { state.apply($0) }
+        // Song names and positions first, so a description or tag list in the
+        // same batch is credited to the new song.
+        let first: Set<String> = ["/setlist/activeSongName", "/setlist/activeSongIndex", "/setlist/nextSongName", "/setlist/songs"]
+        (msgs.filter { first.contains($0.address) } + msgs.filter { !first.contains($0.address) }).forEach { state.apply($0) }
         if state != before {
             if state.songName != before.songName, !state.songName.isEmpty, inBank == true {
                 midi.send(Morningstar.lcd(PedalView.bankTitle(state), tenths: 25))

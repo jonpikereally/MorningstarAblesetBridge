@@ -1,1 +1,1 @@
-On the last song of the setlist, the next-song switch shows "-" instead of a song. The next song now comes from the setlist order.
+A song without a key no longer shows one. Before, it could keep the previous song's key, or treat a lowercase letter like "#e" or "(a)" as a key.
