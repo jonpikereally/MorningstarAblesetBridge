@@ -40,6 +40,9 @@ ON_ENTER_BANK, ON_EXIT_BANK = 1, 2    # bank-message events
 GO_PAGE = {1: 3, 2: 4, 3: 5, 4: 6}    # Toggle Page data1 for "go to page N"
 NOTE_PLAY, NOTE_STOP, NOTE_LOOP, NOTE_PREV, NOTE_NEXT, NOTE_STOP_HELD = 12, 13, 14, 15, 16, 19
 BANK_CC = 111
+# C/D long name: a single space, so pressing PREV/NEXT shows nothing in the
+# middle of the screen (Jon, 2026-11-24). An empty name might fall back to the short name.
+BLANK_LONG = " "
 LIME, YELLOW, WHITE, RED = 1, 4, 7, 9
 
 
@@ -94,9 +97,9 @@ for page in (1, 2, 3, 4):
         presets.append(preset(o, "PLAY", "Play -> C0", LIME, LIME, note(NOTE_PLAY) + [flip(other)]))
     presets.append(preset(o + 1, "STOP", "STOP -> C#0", RED, RED,
                           note(NOTE_STOP) + note(NOTE_STOP_HELD, held=True) + [flip(other)]))
-    presets.append(preset(o + 2, "PREV SONG", "PREV SONG -> D#0", WHITE, 124, note(NOTE_PREV), name=WHITE,
+    presets.append(preset(o + 2, "PREV SONG", BLANK_LONG, WHITE, 124, note(NOTE_PREV), name=WHITE,
                           shift=("MOVE UP", 60)))      # shift labels left over from the MC6 bank
-    presets.append(preset(o + 3, "NEXT SONG", "NEXT SONG -> E0", WHITE, 27, note(NOTE_NEXT), name=WHITE,
+    presets.append(preset(o + 3, "NEXT SONG", BLANK_LONG, WHITE, 27, note(NOTE_NEXT), name=WHITE,
                           shift=("MOVE DOWN", 13)))
 
 bank = {
@@ -130,7 +133,9 @@ backup = {
 if "--check" in sys.argv:
     with open(sys.argv[sys.argv.index("--check") + 1]) as f:
         ref = json.load(f)["data"]["bank"]["presetArray"]
-    diffs = [(p["presetNum"], k) for p, r in zip(presets, ref) for k in p if p[k] != r.get(k)]
+    # C/D long names are blank on purpose; everything else must match.
+    diffs = [(p["presetNum"], k) for p, r in zip(presets, ref) for k in p
+             if p[k] != r.get(k) and not (k == "longName" and p["presetNum"] % 4 in (2, 3))]
     print("presets identical to the reference" if not diffs else "differences: %s" % diffs)
     sys.exit(1 if diffs else 0)
 
