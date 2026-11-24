@@ -71,7 +71,7 @@ To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`
 
 **Show on Pedal** (menu) switches the BPM and key on or off (shown like `Red 125 (Am)`), separately for the current song (on the screen) and for the previous and next songs (C and D). AbleSet has no key field, so the key comes from, in order: `Key: Am` in the song's description (locator text like `Red {Key: Am}`), a description that's only the key (`Red {Am}`), a tag that looks like a key (`#Am`, `#F#`), or a key in brackets at the end of the name (`Red (Am)`). When none is found, the menu shows what AbleSet sent for the song.
 
-In the menu, **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
+In the menu, **Connect Bluetooth MIDI Device…** opens macOS's Bluetooth MIDI window (the same one as Audio MIDI Setup → MIDI Studio → Bluetooth): click **Connect** next to the MC4 PRO and the bridge picks it up. macOS asks once for Bluetooth permission. **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
 
 Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 

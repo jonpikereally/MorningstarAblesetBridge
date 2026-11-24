@@ -162,7 +162,8 @@ enum SelfTest {
         check(!PedalMIDI.containsMorningstarReply(echo) && PedalMIDI.containsMorningstarReply(reply),
               "port search ignores our own question echoing back (IAC) but accepts a pedal reply")
         let msgs = PedalView.messages(s)
-        check(msgs.count == 1 + 2 * 3 + 4 * 4, "bank name + LOOP names/colour on pages 2 and 4 + C/D on every page")
+        check(msgs.count == 1 + 2 * 3 + 4 * 2, "bank name + LOOP names/colour on pages 2 and 4 + C/D short names on every page")
+        check(!msgs.contains { $0.bytes[7] == 0x03 }, "no long names are ever written")
         let colourOps = msgs.filter { $0.bytes[7] == 0x05 }
         check(Set(colourOps.map { $0.bytes[8] }) == [4, 12], "only LOOP (pages 2/4) is ever recoloured")
         check(PedalView.loopColour(s) == PedalView.yellow, "LOOP ON is yellow")

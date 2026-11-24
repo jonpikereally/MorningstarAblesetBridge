@@ -74,7 +74,7 @@ enum ErrorCode: String, CaseIterable {
         case .ableSetSilent: return "Open AbleSet and make sure it's running on this Mac (OSC port 39051). MorningstarAblesetBridge keeps retrying every few seconds."
         case .badHost: return "Reset it: defaults delete com.jonpike.morningstarablesetbridge ableSetHost, then reopen MorningstarAblesetBridge."
         case .midiFailed: return "Quit and reopen MorningstarAblesetBridge. If it keeps happening, restart the Mac."
-        case .pedalNotFound: return "Connect the MC4 over Bluetooth (Audio MIDI Setup → MIDI Studio → Bluetooth) or USB. Bluetooth only reaches one host, so disconnect it from the iPad first."
+        case .pedalNotFound: return "Connect the MC4 over Bluetooth (menu → Connect Bluetooth MIDI Device…) or USB. Bluetooth only reaches one host, so disconnect it from the iPad first."
         case .sendFailed: return "Reconnect the MC4 (Bluetooth or USB) and choose “Resend Everything to Pedal”. If it keeps happening, power-cycle the pedal."
         case .pedalSilent: return "Song names keep updating anyway; only noticing bank changes needs the pedal's answers. Check Pedal MIDI Port → Find Pedal Automatically. If it keeps happening, send the log (menu → Show Log) to whoever helps you — it records what the pedal sent when its answers stopped."
         case .pedalRejected: return "Note the details (Copy Error Details) — the pedal's firmware may expect a different message layout."

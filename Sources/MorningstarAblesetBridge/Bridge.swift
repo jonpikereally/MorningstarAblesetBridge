@@ -148,6 +148,8 @@ enum PedalView {
     /// Presets of A on the playing pages (page 2 A = 4, page 4 A = 12).
     static let loopPresets = [A + 4, A + 12]
 
+    /// Long names are never written (Jon, 2026-11-24): the middle of the
+    /// screen shows the pressed preset's long name, so they stay as the bank has them.
     static func messages(_ s: SetState) -> [(key: String, bytes: [UInt8])] {
         var out: [(String, [UInt8])] = []
         out.append(("bank", Morningstar.setBankName(bankTitle(s))))
@@ -164,9 +166,7 @@ enum PedalView {
         for page in 0..<pages {
             let o = page * 4
             out.append(("C\(o)", Morningstar.setName(.short, preset: C + o, prev)))
-            out.append(("Cl\(o)", Morningstar.setName(.long, preset: C + o, "< " + prev)))
             out.append(("D\(o)", Morningstar.setName(.short, preset: D + o, next)))
-            out.append(("Dl\(o)", Morningstar.setName(.long, preset: D + o, "> " + next)))
         }
         return out
     }

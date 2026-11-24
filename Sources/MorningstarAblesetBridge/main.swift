@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudioKit
 
 // MorningstarAblesetBridge: shows AbleSet's song, tempo and play/loop state on a Morningstar
 // MC4 PRO, and turns its switch A into Play (stopped) / Loop toggle (playing).
@@ -107,6 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggle("Key", PedalView.showNeighbourKey, 4, keyTip)
         show.submenu = sub
         menu.addItem(show)
+        let bt = NSMenuItem(title: "Connect Bluetooth MIDI Device…", action: #selector(connectBluetooth), keyEquivalent: "")
+        bt.target = self
+        bt.toolTip = "macOS's own Bluetooth MIDI window (the one in Audio MIDI Setup): click Connect next to the MC4 PRO"
+        menu.addItem(bt)
         let reconnect = NSMenuItem(title: "Reconnect", action: #selector(reconnectPedal), keyEquivalent: "")
         reconnect.target = self
         reconnect.toolTip = "Reopen the pedal's MIDI connection and AbleSet's, then rewrite the pedal's names"
@@ -141,6 +146,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func resend() { bridge.resendAll() }
     @objc func reconnectPedal() { bridge.reconnect() }
+
+    /// macOS's Bluetooth MIDI window, the same one Audio MIDI Setup opens from
+    /// MIDI Studio → Bluetooth. Once the pedal connects, CoreMIDI announces the
+    /// new device and the bridge picks it up by itself.
+    private var bluetoothWindow: CABTLEMIDIWindowController?
+    @objc func connectBluetooth() {
+        if bluetoothWindow == nil { bluetoothWindow = CABTLEMIDIWindowController() }
+        NSApp.activate(ignoringOtherApps: true)
+        bluetoothWindow?.showWindow(nil)
+        bluetoothWindow?.window?.center()
+        bluetoothWindow?.window?.makeKeyAndOrderFront(nil)
+    }
     @objc private func toggleShow(_ sender: NSMenuItem) {
         switch sender.tag {
         case 1: PedalView.showBPM.toggle()
@@ -197,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if hits.isEmpty {
                 alert.messageText = "No Morningstar pedal answered"
                 alert.informativeText = "None of this Mac's MIDI ports replied. Check the MC4 is connected to this Mac "
-                    + "(Bluetooth: Audio MIDI Setup → MIDI Studio → Bluetooth; Bluetooth reaches one computer at a time), then try again."
+                    + "(Bluetooth: menu → Connect Bluetooth MIDI Device…; Bluetooth reaches one computer at a time), then try again."
             } else {
                 alert.messageText = "Using “\(self?.bridge.pedalPort ?? hits[0])”"
                 alert.informativeText = hits.count > 1
@@ -287,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var text = "You have v\(AppVersion.version)."
         if let notes = m.notes, !notes.isEmpty { text += "\n\nWhat's new:\n\(notes)" }
         text += "\n\nMorningstarAblesetBridge will quit, update itself and reopen. Your settings are kept, "
-            + "and there are no permissions to grant again."
+            + "and the only permission it may ask for again is Bluetooth (used by Connect Bluetooth MIDI Device…)."
         if Bundle.main.bundleURL.path.contains("/AppTranslocation/") {
             text += "\n\nThis copy was opened straight from a download, so the update will be installed in "
                 + "~/Applications. Delete the downloaded copy afterwards."

@@ -1,1 +1,1 @@
-{"version": "1.12", "url": "MorningstarAblesetBridge-1.12.zip", "notes": "New Reconnect item in the menu: reopens the pedal and AbleSet connections from scratch and rewrites the pedal's names."}
+{"version": "1.13", "url": "MorningstarAblesetBridge-1.13.zip", "notes": "New menu item: Connect Bluetooth MIDI Device\u2026 opens macOS's Bluetooth MIDI window, so you no longer need Audio MIDI Setup. The app no longer writes long names on C and D, so the middle of the screen shows the bank's own long names."}
