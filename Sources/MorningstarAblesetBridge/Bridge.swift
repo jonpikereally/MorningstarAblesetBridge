@@ -87,9 +87,13 @@ struct SetState: Equatable {
 }
 
 /// What the pedal should show for a given state. Keys identify each
-/// message so unchanged ones aren't resent. Every switch is the same on all
-/// four pages of the MorningstarAblesetBridge bank, so each change goes to presets n, n+4,
-/// n+8 and n+12.
+/// message so unchanged ones aren't resent.
+///
+/// Display only: the bank's switches send AbleSet's notes themselves and flip
+/// pages themselves, so nothing here changes what a switch does.
+/// Pages 1/3 (stopped): A PLAY. Pages 2/4 (playing): A LOOP. C and D are the
+/// previous and next songs on every page. A on pages 1/3 and B are left as
+/// the bank has them.
 enum PedalView {
     static let pages = 4
     static let A = 0, B = 1, C = 2, D = 3
@@ -129,21 +133,30 @@ enum PedalView {
         s.nextName.isEmpty ? "-" : label(s.nextName, tempo: s.nextTempo, key: s.nextKey, bpm: bpm, key: key)
     }
 
-    static func aLabel(_ s: SetState) -> (String, UInt8) {
-        if !s.playing { return ("PLAY", green) }
-        return s.loop ? ("LOOP ON", orange) : ("LOOP OFF", yellow)
+    /// A on the playing pages (2 and 4): AbleSet's real loop state. That A is a
+    /// toggle preset, so both of its names and colours are set; the pedal's own
+    /// toggle position then doesn't matter.
+    static func loopLabel(_ s: SetState) -> (String, UInt8) {
+        s.loop ? ("LOOP ON", orange) : ("LOOP OFF", yellow)
     }
+
+    /// Presets of A on the playing pages (page 2 A = 4, page 4 A = 12).
+    static let loopPresets = [A + 4, A + 12]
 
     static func messages(_ s: SetState) -> [(key: String, bytes: [UInt8])] {
         var out: [(String, [UInt8])] = []
         out.append(("bank", Morningstar.setBankName(bankTitle(s))))
-        let (label, led) = aLabel(s)
+        let (label, led) = loopLabel(s)
         let prev = previousLabel(s)
         let next = nextLabel(s)
+        for p in loopPresets {
+            out.append(("A\(p)", Morningstar.setName(.short, preset: p, label)))
+            out.append(("At\(p)", Morningstar.setName(.toggle, preset: p, label)))
+            // Black text on a coloured background, like the bank's own LOOP preset.
+            out.append(("Acol\(p)", Morningstar.colours(preset: p, led: led, ledToggle: led, text: 0, background: led)))
+        }
         for page in 0..<pages {
             let o = page * 4
-            out.append(("A\(o)", Morningstar.setName(.short, preset: A + o, label)))
-            out.append(("Acol\(o)", Morningstar.colours(preset: A + o, led: led)))
             out.append(("C\(o)", Morningstar.setName(.short, preset: C + o, prev)))
             out.append(("Cl\(o)", Morningstar.setName(.long, preset: C + o, "< " + prev)))
             out.append(("D\(o)", Morningstar.setName(.short, preset: D + o, next)))
@@ -155,7 +168,6 @@ enum PedalView {
 
 /// Glues AbleSet (OSC) to the MC4 PRO (MIDI).
 final class Bridge {
-    static let smartCC = 110                // switch A in the MorningstarAblesetBridge bank
     static let bankCC = 111                 // MorningstarAblesetBridge bank: 127 on entering it, 0 on leaving
     /// The bank's own (saved) names: the current one, and the one from before the rename.
     static let bankNames: Set<String> = ["AbleSet Bridge", "PedalLink AbleSet"]
@@ -239,16 +251,10 @@ final class Bridge {
     private let launch = Date()
 
     /// CC 111: the MorningstarAblesetBridge bank was entered (127) or left (0).
-    /// CC 110: switch A — play when stopped, loop toggle when playing.
+    /// That's all the bridge listens for: the switches talk to AbleSet
+    /// directly, and the bridge never sends AbleSet a transport command.
     private func pedalCC(_ channel: Int, _ number: Int, _ value: Int) {
-        switch number {
-        case Self.bankCC:
-            setInBank(value > 0)
-        case Self.smartCC where value > 0:
-            setInBank(true)            // only the MorningstarAblesetBridge bank sends CC 110
-            osc.send(OSCMessage(address: state.playing ? "/loop/toggle" : "/global/play", args: []))
-        default: break
-        }
+        if number == Self.bankCC { setInBank(value > 0) }
     }
 
     private func setInBank(_ now: Bool) {

@@ -3,14 +3,19 @@
 A macOS menu bar app that puts [AbleSet](https://ableset.com) on a Morningstar **MC4 PRO** footswitch:
 
 ```
-C  <previous song>          D  <next song>
-A  PLAY / LOOP OFF / LOOP ON   B  STOP
+Page 1 (stopped)                       Page 2 (playing)
+C  <previous song>  D  <next song>     C  <previous song>  D  <next song>
+A  PLAY             B  STOP            A  LOOP ON / OFF    B  STOP
           screen: "<current song> <BPM>"
 ```
 
+**The pedal controls AbleSet by itself. The app only changes what you see.** Every switch sends its own MIDI note straight to AbleSet and turns pages by itself, so the pedal works exactly the same whether the app is running or not. The app never sends AbleSet a play, stop or loop command.
+
+- **A** on page 1 is **PLAY**: it plays, then the pedal flips to page 2, where **A** is **LOOP** (loop on/off). **B** (STOP) stops and flips to the other page.
 - The bank name on the pedal's screen shows the current song and tempo, and a new song's name flashes on screen when the song changes.
 - **C** and **D** are renamed to the previous and next song names.
-- **A** follows what AbleSet is really doing: **PLAY** (green) when stopped, **LOOP OFF** (yellow) or **LOOP ON** (orange) while playing. Pressing it plays, or toggles the loop. It stays right even when a song ends on its own or you stop from the computer.
+- **LOOP** shows AbleSet's real loop state: **LOOP ON** (orange) or **LOOP OFF** (yellow). Without the app it shows the pedal's own guess.
+- The pedal only knows its own presses. If AbleSet stops by itself (end of song, or stopped from the computer), the pedal stays on page 2 until you press STOP, with or without the app.
 
 It reads AbleSet's state over OSC and drives the pedal with Morningstar's [SysEx API for external applications](https://help.morningstar.io/en/article/sysex-documentation-for-external-applications-1n7gb7c/). It works over whatever MIDI link the Mac has to the pedal; Bluetooth has been tested, USB should work the same way. Every change is **temporary**: nothing is saved on the pedal, and its own names come back when you change banks. The bridge only writes while the **AbleSet Bridge** bank is showing.
 
@@ -22,17 +27,20 @@ It reads AbleSet's state over OSC and drives the pedal with Morningstar's [SysEx
 
 ## Pedal side
 
-Load [`bank/AbleSet Bridge.json`](bank/) into a bank slot with the Morningstar editor (Restore / Load from File). In that bank:
+Load [`bank/AbleSet Bridge.json`](bank/) into a bank slot with the Morningstar editor (Restore / Load from File). It is made by `python3 tools/make_bank.py`, and its switches are the same as the **AbleSet Play-Loop** bank's. In that bank:
 
-| Switch | Sends (ch 1) | Notes |
+| Switch | Sends (ch 1) | Then |
 |---|---|---|
-| A | CC 110 = 127 | Handled by the bridge. Does nothing without it. |
-| B | Note 13 (held: note 19) | STOP |
-| C | Note 15 | Previous song |
-| D | Note 16 | Next song |
-| entering / leaving the bank | CC 111 = 127 / 0 | A hint that the bank is showing |
+| A, page 1 | Note 12: PLAY | goes to page 2 |
+| A, page 2 | Note 14: LOOP on/off | stays on page 2 |
+| B | Note 13: STOP (held: note 19) | goes to the other page |
+| C | Note 15: previous song | |
+| D | Note 16: next song | |
+| entering / leaving the bank | CC 111 = 127 / 0 | only tells the app the bank is showing |
 
-Map notes 13, 15 and 16 (and 19 if you like) in AbleSet's MIDI mapping. **Don't map CC 110 or CC 111.** B, C and D go straight to AbleSet, so they work even when the bridge isn't running. All four pages are the same.
+Notes go out as Note On on press and Note Off on release, and the page change happens on release. Pages 3 and 4 repeat 1 and 2, so the A+B / C+D page combos never land on a blank page.
+
+Map notes 12, 13, 14, 15 and 16 (and 19 if you like) in AbleSet's MIDI mapping. They are the same notes as the MC6 Playback Ableset and AbleSet Play-Loop banks, so an existing mapping already covers them. **Don't map CC 111.**
 
 ## Ableton Live side
 
