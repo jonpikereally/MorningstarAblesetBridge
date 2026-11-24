@@ -14,6 +14,12 @@ A  PLAY / LOOP OFF / LOOP ON   B  STOP
 
 It reads AbleSet's state over OSC and drives the pedal with Morningstar's [SysEx API for external applications](https://help.morningstar.io/en/article/sysex-documentation-for-external-applications-1n7gb7c/). It works over whatever MIDI link the Mac has to the pedal; Bluetooth has been tested, USB should work the same way. Every change is **temporary**: nothing is saved on the pedal, and its own names come back when you change banks. The bridge only writes while the **AbleSet Bridge** bank is showing.
 
+## Install
+
+1. Download **[MorningstarAblesetBridge.zip](https://github.com/jonpikereally/MorningstarAblesetBridge/raw/main/updates/MorningstarAblesetBridge.zip)** and unzip it.
+2. Double-click **Install MorningstarAblesetBridge.command**. If macOS blocks it, right-click it, choose **Open**, then **Open** again.
+3. Look for **MC4** in the menu bar. The app checks this repo for updates on its own (menu → Check for Updates…).
+
 ## Pedal side
 
 Load [`bank/AbleSet Bridge.json`](bank/) into a bank slot with the Morningstar editor (Restore / Load from File). In that bank:
@@ -45,6 +51,8 @@ Command Line Tools are enough; Xcode isn't needed.
 python3 tools/ableset_osc_probe.py                                                         # dump AbleSet's OSC values
 ./install.sh                                                                               # to ~/Applications, then open it
 ```
+
+To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`, then commit and push `updates/`. Every installed copy offers it within six hours.
 
 Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 

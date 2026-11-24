@@ -4,7 +4,19 @@ import AppKit
 /// on the error list (ERRORS.md) or pasted into an LLM. Add new codes here and
 /// to ERRORS.md together. Codes are never reused or renumbered.
 enum ErrorCode: String, CaseIterable {
-    // 1xx — updates (reserved for the in-app updater)
+    // 1xx — updates
+    case noUpdateSource = "MAB-101"
+    case badUpdateSource = "MAB-102"
+    case updateSourceUnreachable = "MAB-103"
+    case updateServerError = "MAB-104"
+    case updateInfoMalformed = "MAB-105"
+    case updateDownloadFailed = "MAB-106"
+    case updateUnpackFailed = "MAB-107"
+    case updateMissingApp = "MAB-108"
+    case updateWrongApp = "MAB-109"
+    case updateDamagedApp = "MAB-110"
+    case updateInstallerFailed = "MAB-111"
+    case updateSwapFailed = "MAB-112"
     // 2xx — talking to AbleSet
     case socketFailed = "MAB-201"
     case portInUse = "MAB-202"
@@ -22,6 +34,18 @@ enum ErrorCode: String, CaseIterable {
 
     var summary: String {
         switch self {
+        case .noUpdateSource: return "No update source is set."
+        case .badUpdateSource: return "The update source isn't a web link or a file path."
+        case .updateSourceUnreachable: return "Couldn't reach the update source."
+        case .updateServerError: return "The update server returned an error."
+        case .updateInfoMalformed: return "The update information is damaged or in the wrong format."
+        case .updateDownloadFailed: return "Couldn't download the update."
+        case .updateUnpackFailed: return "Couldn't unpack the downloaded update."
+        case .updateMissingApp: return "The downloaded update doesn't contain MorningstarAblesetBridge."
+        case .updateWrongApp: return "The downloaded update is a different app."
+        case .updateDamagedApp: return "The downloaded update is damaged."
+        case .updateInstallerFailed: return "Couldn't start installing the update."
+        case .updateSwapFailed: return "Installing the update failed, so the previous version was kept."
         case .socketFailed: return "Couldn't open a network socket to talk to AbleSet."
         case .portInUse: return "MorningstarAblesetBridge's OSC listening port is already used by another app."
         case .ableSetSilent: return "AbleSet isn't answering over OSC."
@@ -37,6 +61,11 @@ enum ErrorCode: String, CaseIterable {
 
     var hint: String {
         switch self {
+        case .noUpdateSource, .badUpdateSource: return "Set one with “Update Source…” in the menu, or leave it empty to use the built-in source."
+        case .updateSourceUnreachable: return "Check your internet connection and try again."
+        case .updateServerError, .updateDownloadFailed: return "Try again in a few minutes. If it keeps happening, download the latest version from GitHub."
+        case .updateInfoMalformed, .updateUnpackFailed, .updateMissingApp, .updateWrongApp, .updateDamagedApp: return "The published update is broken. Download the latest version from GitHub instead."
+        case .updateInstallerFailed, .updateSwapFailed: return "Make sure MorningstarAblesetBridge is in ~/Applications and that the folder isn't locked, then try again."
         case .socketFailed: return "Quit and reopen MorningstarAblesetBridge. If it keeps happening, restart the Mac."
         case .portInUse: return "Quit any other copy of MorningstarAblesetBridge (Ableton Live itself uses 39061), or pick another listening port: defaults write com.jonpike.morningstarablesetbridge listenPort -int 39162, then reopen MorningstarAblesetBridge."
         case .ableSetSilent: return "Open AbleSet and make sure it's running on this Mac (OSC port 39051). MorningstarAblesetBridge keeps retrying every few seconds."
@@ -50,10 +79,14 @@ enum ErrorCode: String, CaseIterable {
     }
 }
 
-struct AppError: Error {
+struct AppError: LocalizedError {
     let code: ErrorCode
     let details: String
     init(_ code: ErrorCode, _ details: String = "") { self.code = code; self.details = details }
+    init(wrapping error: Error, as code: ErrorCode = .unexpected) {
+        if let e = error as? AppError { self = e } else { self.init(code, error.localizedDescription) }
+    }
+    var errorDescription: String? { "\(code.summary) (\(code.rawValue))" }
 }
 
 enum ErrorReporter {
@@ -83,25 +116,35 @@ enum ErrorReporter {
         """
     }
 
-    static func show(_ e: AppError) {
+    static func show(_ e: AppError) { present(e, title: e.code.summary) }
+
+    /// Shows the error with its code. `actions` become extra buttons; returns
+    /// the index of the action picked, or nil.
+    @discardableResult
+    static func present(_ e: AppError, title: String, actions: [String] = []) -> Int? {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = e.code.summary
-        alert.informativeText = "\(e.details.isEmpty ? "" : e.details + "\n\n")\(e.code.hint)\n\nError code: \(e.code.rawValue)"
+        alert.messageText = title
+        let lead = title == e.code.summary ? "" : e.code.summary + "\n\n"
+        alert.informativeText = "\(lead)\(e.details.isEmpty ? "" : e.details + "\n\n")\(e.code.hint)\n\nError code: \(e.code.rawValue)"
         alert.addButton(withTitle: "OK")
+        for a in actions { alert.addButton(withTitle: a) }
         alert.addButton(withTitle: "Copy Error Details")
         alert.addButton(withTitle: "Open Error List")
         alert.layout()
+        alert.window.contentView?.toolTip = hover
         addTooltips(alert.window.contentView)
-        switch alert.runModal() {
-        case .alertSecondButtonReturn:
+        let r = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        if r == actions.count + 1 {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(details(e), forType: .string)
-        case .alertThirdButtonReturn:
+        } else if r == actions.count + 2 {
             if let url = URL(string: listPage) { NSWorkspace.shared.open(url) }
-        default: break
+        } else if r >= 1 && r <= actions.count {
+            return r - 1
         }
+        return nil
     }
 
     private static func addTooltips(_ view: NSView?) {
