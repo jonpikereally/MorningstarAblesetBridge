@@ -103,7 +103,14 @@ enum SelfTest {
                   OSCMessage(address: "/setlist/nextSongName", args: [.string("Three")]),
                   OSCMessage(address: "/global/tempo", args: [.float(120)]),
                   OSCMessage(address: "/global/isPlaying", args: [.int(1)])] { s.apply(m) }
-        check(s.previousName == "One" && PedalView.bankTitle(s) == "Two 120", "state → previous song + bank title")
+        check(s.previousName == "One" && PedalView.bankTitle(s, bpm: true, key: true) == "Two 120", "state → previous song + bank title")
+        s.apply(OSCMessage(address: "/setlist/activeSongDescription", args: [.string("Capo 2, Key: F#m")]))
+        check(s.key == "F#m" && PedalView.bankTitle(s, bpm: true, key: true) == "Two 120 F#m", "key from the description")
+        check(PedalView.bankTitle(s, bpm: false, key: true) == "Two F#m" && PedalView.bankTitle(s, bpm: true, key: false) == "Two 120", "Show BPM / Show Key toggles")
+        s.apply(OSCMessage(address: "/setlist/activeSongDescription", args: []))
+        s.apply(OSCMessage(address: "/setlist/activeSongTags", args: [.string("#rock"), .string("#Bbm")]))
+        check(s.key == "Bbm", "key from a tag")
+        s.apply(OSCMessage(address: "/setlist/activeSongTags", args: []))
         check(PedalView.aLabel(s).0 == "LOOP OFF", "A says LOOP OFF while playing")
         s.apply(OSCMessage(address: "/setlist/loopEnabled", args: [.bool(true)]))
         check(PedalView.aLabel(s).0 == "LOOP ON", "A says LOOP ON when loop is on")

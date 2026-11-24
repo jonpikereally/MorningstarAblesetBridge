@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             info("AbleSet: connected")
             let position = s.songIndex.map { " (\($0 + 1)/\(s.songs.count))" } ?? ""
             info("    \(s.songName.isEmpty ? "No song" : s.songName)\(position)\(s.tempo.map { String(format: " · %.0f BPM", $0) } ?? "")")
-            info("    \(s.playing ? "Playing" : "Stopped") · loop \(s.loop ? "on" : "off")")
+            info("    \(s.playing ? "Playing" : "Stopped") · loop \(s.loop ? "on" : "off")\(s.key.map { " · key \($0)" } ?? "")")
             if !s.nextName.isEmpty { info("    Next: \(s.nextName)") }
         } else {
             info("AbleSet: not answering on port \(bridge.ableSetPort)")
@@ -80,6 +80,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        let bpm = NSMenuItem(title: "Show BPM", action: #selector(toggleBPM), keyEquivalent: "")
+        bpm.target = self
+        bpm.state = PedalView.showBPM ? .on : .off
+        menu.addItem(bpm)
+        let key = NSMenuItem(title: "Show Key", action: #selector(toggleKey), keyEquivalent: "")
+        key.target = self
+        key.state = PedalView.showKey ? .on : .off
+        key.toolTip = "Read from the song's AbleSet description (e.g. locator “Red {Key: Am}”) or a key tag like #Am."
+        menu.addItem(key)
         let resend = NSMenuItem(title: "Resend Everything to Pedal", action: #selector(resend), keyEquivalent: "r")
         resend.target = self
         menu.addItem(resend)
@@ -92,6 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let source = NSMenuItem(title: "Update Source…", action: #selector(editUpdateSource), keyEquivalent: "")
         source.target = self
         menu.addItem(source)
+        let log = NSMenuItem(title: "Show Log", action: #selector(showLog), keyEquivalent: "")
+        log.target = self
+        menu.addItem(log)
         let github = NSMenuItem(title: "MorningstarAblesetBridge on GitHub", action: #selector(openGitHub), keyEquivalent: "")
         github.target = self
         menu.addItem(github)
@@ -106,6 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func resend() { bridge.resendAll() }
+    @objc private func toggleBPM() { PedalView.showBPM.toggle(); bridge.displaySettingsChanged() }
+    @objc private func toggleKey() { PedalView.showKey.toggle(); bridge.displaySettingsChanged() }
 
     // MARK: Ports
 
@@ -304,6 +318,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         Updater.shared.feed = value
         Updater.shared.check { _ in }
+    }
+
+    @objc private func showLog() {
+        let url = ErrorReporter.logURL
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Nothing logged yet"
+            alert.informativeText = "The log appears at ~/Library/Logs/MorningstarAblesetBridge.log after the first problem."
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
     }
 
     @objc private func openGitHub() {

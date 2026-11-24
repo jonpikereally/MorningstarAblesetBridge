@@ -9,6 +9,22 @@ struct SetState: Equatable {
     var songIndex: Int?
     var songName = ""
     var nextName = ""
+    var songDescription = ""
+    var songTags: [String] = []
+
+    /// The song's key, from "Key: Am" in its AbleSet description (locator
+    /// text like `Red {Key: Am}`), or a tag that looks like a key (`#Am`, `#F#`, `#Bbm`).
+    var key: String? {
+        if let r = songDescription.range(of: #"(?i)\bkey\s*[:=]\s*([^,;}\]\)]+)"#, options: .regularExpression) {
+            let m = songDescription[r]
+            if let colon = m.firstIndex(where: { $0 == ":" || $0 == "=" }) {
+                let v = m[m.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                if !v.isEmpty { return v }
+            }
+        }
+        return songTags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
+            .first { $0.range(of: #"^[A-Ga-g][#b♯♭]?(m|min|maj|M)?$"#, options: .regularExpression) != nil }
+    }
 
     var previousName: String? {
         guard let i = songIndex, i > 0, i - 1 < songs.count else { return nil }
@@ -24,6 +40,8 @@ struct SetState: Equatable {
         case "/setlist/nextSongName": nextName = m.text ?? ""
         case "/setlist/activeSongIndex": songIndex = m.number.map { Int($0) }
         case "/setlist/songs": songs = m.args.compactMap { $0.text }
+        case "/setlist/activeSongDescription": songDescription = m.text ?? ""
+        case "/setlist/activeSongTags": songTags = m.args.compactMap { $0.text }
         default: break
         }
     }
@@ -39,11 +57,24 @@ enum PedalView {
     // LED colours (Morningstar colour chart)
     static let green: UInt8 = 1, yellow: UInt8 = 4, orange: UInt8 = 8
 
-    static func bankTitle(_ s: SetState) -> String {
-        let song = s.songName.isEmpty ? "AbleSet" : s.songName
-        guard let t = s.tempo else { return song }
-        let bpm = abs(t - t.rounded()) < 0.05 ? String(Int(t.rounded())) : String(format: "%.1f", t)
-        return "\(song) \(bpm)"
+    /// Menu toggles (saved as the showBPM / showKey defaults).
+    static var showBPM: Bool {
+        get { UserDefaults.standard.object(forKey: "showBPM") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "showBPM") }
+    }
+    static var showKey: Bool {
+        get { UserDefaults.standard.object(forKey: "showKey") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "showKey") }
+    }
+
+    /// "<song> <BPM> <key>", each extra only when switched on and known.
+    static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey) -> String {
+        var parts = [s.songName.isEmpty ? "AbleSet" : s.songName]
+        if showBPM, let t = s.tempo {
+            parts.append(abs(t - t.rounded()) < 0.05 ? String(Int(t.rounded())) : String(format: "%.1f", t))
+        }
+        if showKey, let k = s.key { parts.append(k) }
+        return parts.joined(separator: " ")
     }
 
     static func aLabel(_ s: SetState) -> (String, UInt8) {
@@ -101,6 +132,7 @@ final class Bridge {
         midi.exactName = defaults.string(forKey: "pedalPort")
         midi.onControlChange = { [weak self] ch, n, v in self?.pedalCC(ch, n, v) }
         midi.onSysex = { [weak self] in self?.pedalSysex($0) }
+        midi.onRaw = { [weak self] in self?.recordRaw($0) }
         midi.onConnectionChange = { [weak self] in self?.pedalConnectionChanged() }
         midi.onSendError = { [weak self] in self?.raise($0) }
         do { try midi.start() } catch let e as AppError { raise(e) } catch { raise(AppError(.unexpected, "\(error)")) }
@@ -184,6 +216,8 @@ final class Bridge {
         sent.removeAll()
         inBank = nil
         pollsUnanswered = 0
+        connectedAt = Date()
+        lastReply = nil
         if midi.isConnected {
             clear(.pedalNotFound)
         } else {
@@ -192,21 +226,66 @@ final class Bridge {
         onChange()
     }
 
-    /// Every 1.5 s ask the pedal for its current bank name. In the MorningstarAblesetBridge
-    /// bank that's either the bank's own name (just entered, nothing written
-    /// yet) or a song title MorningstarAblesetBridge wrote.
+    /// Ask the pedal for its current bank name: every 1.5 s when stopped, every
+    /// 5 s while playing. In the bridge bank that's the bank's own name (just
+    /// entered, nothing written yet) or a song title the bridge wrote. Renames
+    /// don't depend on the answers, so missing replies only matter for noticing
+    /// bank changes; warn after 30 s without any.
     private func pollPedal() {
         guard midi.isConnected, midi.queued == 0 else { return }
+        let interval = state.playing ? 5.0 : 1.5
+        guard Date().timeIntervalSince(lastPoll) >= interval - 0.1 else { return }
+        lastPoll = Date()
         pollsUnanswered += 1
-        if pollsUnanswered > 4 {
-            raise(AppError(.pedalSilent, "No SysEx reply from \(midi.destinationName ?? "?") to \(pollsUnanswered - 1) requests"))
+        let silent = Date().timeIntervalSince(lastReply ?? connectedAt)
+        if pollsUnanswered > 3, silent > 30 {
+            if !silenceLogged {
+                silenceLogged = true
+                diagnostics("replies stopped")
+            }
+            raise(AppError(.pedalSilent, String(format: "No SysEx reply from %@ for %.0f s (%d requests; AbleSet %@)",
+                                                 midi.destinationName ?? "?", silent, pollsUnanswered - 1,
+                                                 state.playing ? "playing" : "stopped")))
         }
         midi.send(Morningstar.currentBankName())
     }
 
+    // MARK: Diagnostics (written to the log when replies stop and start again)
+
+    private var lastPoll = Date.distantPast
+    private var lastReply: Date?
+    private var connectedAt = Date()
+    private var silenceLogged = false
+    private var rxChunks = 0, rxReplies = 0, rxBadSysex = 0
+    private var recentRx: [String] = []
+
+    private func recordRaw(_ bytes: [UInt8]) {
+        rxChunks += 1
+        let stamp = String(format: "%.1f", Date().timeIntervalSince(connectedAt))
+        recentRx.append("+\(stamp)s " + Morningstar.hex(Array(bytes.prefix(40))) + (bytes.count > 40 ? " …(\(bytes.count))" : ""))
+        if recentRx.count > 25 { recentRx.removeFirst(recentRx.count - 25) }
+    }
+
+    private func diagnostics(_ what: String) {
+        let lines = ["diagnostics: \(what) — pedal \(midi.destinationName ?? "?"), AbleSet \(state.playing ? "playing" : "stopped"), "
+                     + "in-bank \(inBank.map { "\($0)" } ?? "unknown"), received \(rxChunks) chunks, \(rxReplies) good replies, "
+                     + "\(rxBadSysex) garbled SysEx, \(pollsUnanswered) unanswered requests, outbox \(midi.queued)",
+                     "last pedal traffic:"] + recentRx.map { "  " + $0 }
+        ErrorReporter.note(lines.joined(separator: "\n"))
+    }
+
     private func pedalSysex(_ bytes: [UInt8]) {
-        guard let r = Morningstar.parse(bytes) else { return }
+        guard let r = Morningstar.parse(bytes) else {
+            if bytes.count >= 4, bytes[1] == 0x00, bytes[2] == 0x21, bytes[3] == 0x24 { rxBadSysex += 1 }
+            return
+        }
+        rxReplies += 1
+        lastReply = Date()
         pollsUnanswered = 0
+        if silenceLogged {
+            silenceLogged = false
+            diagnostics("replies came back")
+        }
         clear(.pedalSilent)
         if r.isError {
             if r.ack != 0 {
@@ -281,6 +360,12 @@ final class Bridge {
             lastSubscribe = Date()
             subscribe()
         } catch let e as AppError { raise(e) } catch { raise(AppError(.unexpected, "\(error)")) }
+        onChange()
+    }
+
+    /// After a display setting changes.
+    func displaySettingsChanged() {
+        push()
         onChange()
     }
 

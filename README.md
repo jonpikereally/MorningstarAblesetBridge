@@ -55,6 +55,8 @@ python3 tools/ableset_osc_probe.py                                              
 
 To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`, then commit and push `updates/`. Every installed copy offers it within six hours.
 
+**Show BPM** and **Show Key** (menu toggles) choose what follows the song name on the screen. AbleSet has no key field, so the key comes from the song's description, `Key: Am` (locator text like `Red {Key: Am}`), or a tag that looks like a key (`#Am`, `#F#`).
+
 In the menu, **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
 
 Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
