@@ -111,11 +111,11 @@ enum PedalView {
     static func label(_ name: String, tempo: Double?, key: String?, bpm showBPM: Bool, key showKey: Bool) -> String {
         var parts = [name]
         if showBPM, let t = tempo { parts.append(bpmText(t)) }
-        if showKey, let k = key { parts.append(k) }
+        if showKey, let k = key { parts.append("(\(k))") }     // "Red 125 (Am)"
         return parts.joined(separator: " ")
     }
 
-    /// "<song> <BPM> <key>", each extra only when switched on and known.
+    /// "<song> <BPM> (<key>)", each extra only when switched on and known.
     static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey) -> String {
         label(s.songName.isEmpty ? "AbleSet" : s.songName, tempo: s.tempo, key: s.key, bpm: showBPM, key: showKey)
     }

@@ -1,1 +1,1 @@
-{"version": "1.5", "url": "MorningstarAblesetBridge.zip", "notes": "New: Show on Pedal menu with separate BPM and Key switches for the current song (screen) and for the previous / next songs (C and D). Keys are now also found when the description is just the key ({Am}) or the song name ends with it (\"Red (Am)\"). When no key is found, the menu shows what AbleSet sent for the song, to help set it up."}
+{"version": "1.6", "url": "MorningstarAblesetBridge.zip", "notes": "The key now shows in brackets, like \"Red 125 (Am)\"."}
