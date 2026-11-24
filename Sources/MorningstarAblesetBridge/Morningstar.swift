@@ -115,6 +115,58 @@ final class PedalMIDI {
     static var debug = false
 
     var isConnected: Bool { destination != 0 }
+    /// When set, use the MIDI port with exactly this name instead of the first one containing `match`.
+    var exactName: String?
+    private var searchHits: Set<String> = []
+    private var searchRefs: [(MIDIEndpointRef, UnsafeMutableRawPointer)] = []
+    private(set) var searching = false
+
+    static func containsMorningstarReply(_ b: [UInt8]) -> Bool {
+        // A real reply has 01 in byte 5; our own question (00 there) echoing back
+        // through a loopback port like the IAC Driver doesn't count.
+        guard b.count >= 8 else { return false }
+        for i in 0...(b.count - 8) where b[i] == 0xF0 && b[i + 1] == 0x00 && b[i + 2] == 0x21 && b[i + 3] == 0x24
+            && b[i + 5] == 0x01 && b[i + 6] == 0x70 { return true }
+        return false
+    }
+
+    /// Names of every MIDI port the Mac can send to.
+    static func portNames() -> [String] {
+        Array(Set(endpoints(sources: false).map(name))).sorted()
+    }
+
+    /// Asks every MIDI port a Morningstar question ("controller info") and
+    /// reports the ports whose matching input answered, within `seconds`.
+    /// Morningstar SysEx carries Morningstar's manufacturer ID, so other
+    /// devices ignore it.
+    func search(seconds: Double = 2.5, completion: @escaping ([String]) -> Void) {
+        guard !searching else { return }
+        searching = true
+        searchHits = []
+        if source != 0 { MIDIPortDisconnectSource(inPort, source); source = 0 }
+        for src in Self.endpoints(sources: true) {
+            let ref = Unmanaged.passRetained(Self.name(src) as NSString).toOpaque()
+            if MIDIPortConnectSource(inPort, src, ref) == noErr { searchRefs.append((src, ref)) } else { Unmanaged<NSString>.fromOpaque(ref).release() }
+        }
+        let question = Morningstar.controllerInfo()
+        for dest in Self.endpoints(sources: false) { sendNow(question, to: dest) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds / 2) { [weak self] in
+            for dest in Self.endpoints(sources: false) { self?.sendNow(question, to: dest) }   // ask twice: Bluetooth can drop one
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self else { return }
+            for (src, ref) in self.searchRefs {
+                MIDIPortDisconnectSource(self.inPort, src)
+                Unmanaged<NSString>.fromOpaque(ref).release()
+            }
+            self.searchRefs = []
+            self.searching = false
+            let destNames = Set(Self.portNames())
+            let hits = self.searchHits.filter { destNames.contains($0) }.sorted()
+            self.rescan()
+            completion(hits)
+        }
+    }
 
     func start() throws {
         var status = MIDIClientCreateWithBlock("MorningstarAblesetBridge" as CFString, &client) { [weak self] _ in
@@ -125,7 +177,9 @@ final class PedalMIDI {
         guard status == noErr else { throw AppError(.midiFailed, "MIDIOutputPortCreate \(status)") }
         // The MIDI 1.0 "protocol" input API: the older packet-list API received
         // nothing from the MC4 over Bluetooth (2026-11-24), this one does.
-        status = MIDIInputPortCreateWithProtocol(client, "MorningstarAblesetBridge in" as CFString, ._1_0, &inPort) { [weak self] list, _ in
+        status = MIDIInputPortCreateWithProtocol(client, "MorningstarAblesetBridge in" as CFString, ._1_0, &inPort) { [weak self] list, refCon in
+            // During a port search every source is connected with its name as refCon.
+            let searchSource = refCon.map { Unmanaged<NSString>.fromOpaque($0).takeUnretainedValue() as String }
             var bytes: [UInt8] = []
             if PedalMIDI.debug {
                 for packet in list.unsafeSequence() {
@@ -136,6 +190,10 @@ final class PedalMIDI {
             }
             for packet in list.unsafeSequence() {
                 bytes += PedalMIDI.bytes(fromUMP: packet)
+            }
+            if let name = searchSource {
+                if Self.containsMorningstarReply(bytes) { DispatchQueue.main.async { self?.searchHits.insert(name) } }
+                return
             }
             if !bytes.isEmpty { DispatchQueue.main.async { self?.receive(bytes) } }
         }
@@ -192,9 +250,14 @@ final class PedalMIDI {
     }
 
     func rescan() {
+        guard !searching else { return }
         let wanted = match.lowercased()
-        let dest = Self.endpoints(sources: false).first { Self.name($0).lowercased().contains(wanted) } ?? 0
-        let src = Self.endpoints(sources: true).first { Self.name($0).lowercased().contains(wanted) } ?? 0
+        let fits: (MIDIEndpointRef) -> Bool = { [exactName] ep in
+            if let exact = exactName { return Self.name(ep) == exact }
+            return Self.name(ep).lowercased().contains(wanted)
+        }
+        let dest = Self.endpoints(sources: false).first(where: fits) ?? 0
+        let src = Self.endpoints(sources: true).first(where: fits) ?? 0
         if src != source {
             if source != 0 { MIDIPortDisconnectSource(inPort, source) }
             if src != 0 {
@@ -221,6 +284,16 @@ final class PedalMIDI {
     }
 
     var queued: Int { outbox.count }
+
+    private func sendNow(_ bytes: [UInt8], to dest: MIDIEndpointRef) {
+        let size = 1024
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
+        defer { raw.deallocate() }
+        let list = raw.assumingMemoryBound(to: MIDIPacketList.self)
+        var packet = MIDIPacketListInit(list)
+        packet = MIDIPacketListAdd(list, size, packet, 0, bytes.count, bytes)
+        _ = MIDISend(outPort, dest, list)
+    }
 
     private func sendNext() {
         guard !outbox.isEmpty, destination != 0 else {

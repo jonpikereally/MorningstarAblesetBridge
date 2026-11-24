@@ -5,10 +5,12 @@ import AppKit
 //
 //   MorningstarAblesetBridge --selftest        offline checks of the message encoding
 //   MorningstarAblesetBridge --probe [--write] talk to the pedal from Terminal and print replies
+//   MorningstarAblesetBridge --find            list MIDI ports and which one answers as a Morningstar pedal
 
 let arguments = CommandLine.arguments
 if arguments.contains("--selftest") { exit(SelfTest.run()) }
 if arguments.contains("--probe") { Probe.run(write: arguments.contains("--write")) }
+if arguments.contains("--find") { Probe.find() }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let bridge = Bridge()
@@ -56,9 +58,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case false?: info("    Another bank is showing (the bridge waits)")
             case nil: info("    Asking the pedal which bank is showing…")
             }
+        } else if let exact = bridge.pedalPort {
+            info("Pedal: MIDI port “\(exact)” isn't connected")
         } else {
             info("Pedal: no MIDI device named “\(bridge.midi.match)”")
         }
+        menu.addItem(portMenu())
+        let osc = NSMenuItem(title: "AbleSet Ports…", action: #selector(editAbleSetPorts), keyEquivalent: "")
+        osc.target = self
+        menu.addItem(osc)
 
         if !bridge.problems.isEmpty {
             menu.addItem(.separator())
@@ -98,6 +106,110 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func resend() { bridge.resendAll() }
+
+    // MARK: Ports
+
+    private var finding = false
+
+    private func portMenu() -> NSMenuItem {
+        let top = NSMenuItem(title: "Pedal MIDI Port", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        let find = NSMenuItem(title: finding ? "Searching…" : "Find Pedal Automatically",
+                              action: finding ? nil : #selector(findPedal), keyEquivalent: "")
+        find.target = self
+        find.toolTip = "Asks every MIDI port a Morningstar question and uses the one that answers."
+        sub.addItem(find)
+        sub.addItem(.separator())
+        let auto = NSMenuItem(title: "Automatic (first port named “\(bridge.midi.match)”)", action: #selector(pickPort(_:)), keyEquivalent: "")
+        auto.target = self
+        auto.state = bridge.pedalPort == nil ? .on : .off
+        sub.addItem(auto)
+        var names = PedalMIDI.portNames()
+        if let exact = bridge.pedalPort, !names.contains(exact) { names.append(exact) }
+        for name in names {
+            let i = NSMenuItem(title: name, action: #selector(pickPort(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = name
+            i.state = bridge.pedalPort == name ? .on : .off
+            sub.addItem(i)
+        }
+        sub.addItem(.separator())
+        let type = NSMenuItem(title: "Type a Port Name…", action: #selector(typePort), keyEquivalent: "")
+        type.target = self
+        sub.addItem(type)
+        top.submenu = sub
+        return top
+    }
+
+    @objc private func pickPort(_ sender: NSMenuItem) {
+        bridge.usePedalPort(sender.representedObject as? String)
+    }
+
+    @objc private func findPedal() {
+        finding = true
+        bridge.findPedal { [weak self] hits in
+            self?.finding = false
+            let alert = NSAlert()
+            if hits.isEmpty {
+                alert.messageText = "No Morningstar pedal answered"
+                alert.informativeText = "None of this Mac's MIDI ports replied. Check the MC4 is connected to this Mac "
+                    + "(Bluetooth: Audio MIDI Setup → MIDI Studio → Bluetooth; Bluetooth reaches one computer at a time), then try again."
+            } else {
+                alert.messageText = "Using “\(self?.bridge.pedalPort ?? hits[0])”"
+                alert.informativeText = hits.count > 1
+                    ? "These ports answered: \(hits.joined(separator: ", ")). You can pick another one under Pedal MIDI Port."
+                    : "That MIDI port answered as a Morningstar pedal."
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+    }
+
+    @objc private func typePort() {
+        let alert = NSAlert()
+        alert.messageText = "Pedal MIDI Port"
+        alert.informativeText = "The exact name of the MIDI port the pedal uses, as Audio MIDI Setup shows it. Leave it empty for automatic."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = bridge.pedalPort ?? ""
+        field.placeholderString = "MC4 PRO …"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Use This Port")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        bridge.usePedalPort(field.stringValue)
+    }
+
+    @objc private func editAbleSetPorts() {
+        let alert = NSAlert()
+        alert.messageText = "AbleSet Ports"
+        alert.informativeText = "AbleSet listens for OSC on 39051 unless you changed it in AbleSet's settings. "
+            + "The bridge listens for AbleSet's updates on its own port (39161); pick another if something else uses it. "
+            + "Don't use 39061: Ableton Live uses that one."
+        let ableSet = NSTextField(frame: NSRect(x: 0, y: 30, width: 120, height: 24))
+        ableSet.stringValue = String(bridge.ableSetPort)
+        ableSet.placeholderString = "39051"
+        let listen = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        listen.stringValue = String(bridge.listenPort)
+        listen.placeholderString = "39161"
+        let l1 = NSTextField(labelWithString: "AbleSet's port"); l1.frame = NSRect(x: 130, y: 33, width: 200, height: 18)
+        let l2 = NSTextField(labelWithString: "Bridge listens on"); l2.frame = NSRect(x: 130, y: 3, width: 200, height: 18)
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: 56))
+        [ableSet, listen, l1, l2].forEach(box.addSubview)
+        alert.accessoryView = box
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = ableSet
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let a = UInt16(ableSet.stringValue.trimmingCharacters(in: .whitespaces)), a > 0,
+              let l = UInt16(listen.stringValue.trimmingCharacters(in: .whitespaces)), l > 0, a != l else {
+            NSSound.beep()
+            return
+        }
+        bridge.useAbleSetPorts(listen: l, ableSet: a)
+    }
 
     // MARK: Updates (same behaviour as Jon's other apps)
 

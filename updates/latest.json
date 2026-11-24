@@ -1,1 +1,1 @@
-{"version": "1.0", "url": "MorningstarAblesetBridge.zip", "notes": "First release: AbleSet song names, tempo and play/loop state on the MC4 PRO, with switch A as Play / Loop toggle."}
+{"version": "1.1", "url": "MorningstarAblesetBridge.zip", "notes": "New: Pedal MIDI Port menu. Find Pedal Automatically asks every MIDI port and uses the one that answers, or pick or type a port yourself. New: AbleSet Ports\u2026 to set the OSC ports. Fixed: a song title written by another computer no longer reads as \"another bank is showing\"."}

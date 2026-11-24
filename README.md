@@ -48,17 +48,21 @@ Command Line Tools are enough; Xcode isn't needed.
 ./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --probe             # ask the pedal its names
 ./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --probe --write     # + temporary rename / LCD test
 ./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --probe --raw       # + print every incoming MIDI packet
+./MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge --find              # which MIDI port answers as the pedal
 python3 tools/ableset_osc_probe.py                                                         # dump AbleSet's OSC values
 ./install.sh                                                                               # to ~/Applications, then open it
 ```
 
 To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`, then commit and push `updates/`. Every installed copy offers it within six hours.
 
+In the menu, **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
+
 Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 
 | Key | Default | Meaning |
 |---|---|---|
-| `pedalName` | `MC4` | Text matched inside the pedal's MIDI device name |
+| `pedalPort` | (none) | Exact MIDI port name; set by the Pedal MIDI Port menu |
+| `pedalName` | `MC4` | Text matched inside the pedal's MIDI port name when `pedalPort` isn't set |
 | `listenPort` | 39161 | UDP port for AbleSet's updates |
 | `ableSetPort` | 39051 | AbleSet's OSC port |
 | `ableSetHost` | 127.0.0.1 | AbleSet's computer |

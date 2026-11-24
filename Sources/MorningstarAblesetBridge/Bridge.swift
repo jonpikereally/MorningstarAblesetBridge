@@ -98,6 +98,7 @@ final class Bridge {
 
     func start() {
         midi.match = defaults.string(forKey: "pedalName") ?? "MC4"
+        midi.exactName = defaults.string(forKey: "pedalPort")
         midi.onControlChange = { [weak self] ch, n, v in self?.pedalCC(ch, n, v) }
         midi.onSysex = { [weak self] in self?.pedalSysex($0) }
         midi.onConnectionChange = { [weak self] in self?.pedalConnectionChanged() }
@@ -220,8 +221,11 @@ final class Bridge {
             // Freshly entered (or re-entered between polls): the pedal shows the saved names again.
             if inBank != true { setInBank(true) } else if sent["bank"] != nil, !titlesSent.contains(name) { sent.removeAll(); push() }
         } else {
-            // A title this run wrote, or (after a restart) the title for the current song.
-            setInBank(titlesSent.contains(name) || name == Self.stored(PedalView.bankTitle(state)))
+            // A title this copy wrote, or one any copy (another Mac, an earlier run) would
+            // write: "<a song in the setlist> <tempo>".
+            let mine = titlesSent.contains(name) || name == Self.stored(PedalView.bankTitle(state))
+                || state.songs.contains { name.hasPrefix(Self.stored($0) + " ") || name == Self.stored($0) }
+            setInBank(mine)
         }
     }
 
@@ -240,6 +244,44 @@ final class Bridge {
             midi.send(bytes)
             sent[key] = bytes
         }
+    }
+
+    // MARK: Choosing ports
+
+    /// nil = automatic (first MIDI port whose name contains "MC4").
+    var pedalPort: String? { midi.exactName }
+
+    func usePedalPort(_ name: String?) {
+        let trimmed = name?.trimmingCharacters(in: .whitespaces)
+        let value = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        defaults.set(value, forKey: "pedalPort")
+        midi.exactName = value
+        midi.rescan()
+        pedalConnectionChanged()
+    }
+
+    /// Finds the port that answers Morningstar SysEx and switches to it.
+    func findPedal(completion: @escaping ([String]) -> Void) {
+        midi.search { [weak self] hits in
+            if let first = hits.first(where: { $0.lowercased().contains("mc4") }) ?? hits.first {
+                self?.usePedalPort(first)
+            }
+            completion(hits)
+        }
+    }
+
+    func useAbleSetPorts(listen: UInt16, ableSet: UInt16) {
+        defaults.set(Int(listen), forKey: "listenPort")
+        defaults.set(Int(ableSet), forKey: "ableSetPort")
+        osc.close()
+        clear(.portInUse); clear(.socketFailed)
+        do {
+            try osc.open(host: host, sendPort: ableSetPort, listenPort: listenPort)
+            lastAbleSet = Date()        // grace period before "not answering"
+            lastSubscribe = Date()
+            subscribe()
+        } catch let e as AppError { raise(e) } catch { raise(AppError(.unexpected, "\(error)")) }
+        onChange()
     }
 
     /// Menu: resend everything (and trust that the MorningstarAblesetBridge bank is showing).

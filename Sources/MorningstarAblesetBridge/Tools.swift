@@ -51,6 +51,24 @@ enum Probe {
     }
 }
 
+extension Probe {
+    /// `--find`: the same search as the menu's "Find Pedal Automatically".
+    static func find() -> Never {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        print("MIDI ports:"); PedalMIDI.portNames().forEach { print("   ", $0) }
+        let midi = PedalMIDI()
+        midi.match = "\u{1}never"              // connect nothing normally; only the search listens
+        do { try midi.start() } catch { print("!! \(error)"); exit(1) }
+        print("\nAsking every port a Morningstar question…")
+        midi.search { hits in
+            print(hits.isEmpty ? "No port answered." : "Answered: " + hits.joined(separator: ", "))
+            exit(hits.isEmpty ? 2 : 0)
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(10))
+        exit(3)
+    }
+}
+
 /// `--selftest`: offline checks, runnable in the sandbox.
 enum SelfTest {
     static func run() -> Int32 {
@@ -91,6 +109,10 @@ enum SelfTest {
         check(PedalView.aLabel(s).0 == "LOOP ON", "A says LOOP ON when loop is on")
         s.apply(OSCMessage(address: "/global/isPlaying", args: [.float(0)]))
         check(PedalView.aLabel(s).0 == "PLAY", "A says PLAY when stopped")
+        let echo = Morningstar.controllerInfo()
+        var reply = echo; reply[5] = 0x01; reply[reply.count - 2] = Morningstar.checksum(reply.dropLast(2))
+        check(!PedalMIDI.containsMorningstarReply(echo) && PedalMIDI.containsMorningstarReply(reply),
+              "port search ignores our own question echoing back (IAC) but accepts a pedal reply")
         let msgs = PedalView.messages(s)
         check(msgs.count == 1 + 4 * 6, "one bank name + 6 messages per page")
         check(Set(msgs.map { $0.bytes[8] }.filter { _ in true }).isSuperset(of: [0, 4, 8, 12, 2, 6, 10, 14]), "all four pages are covered")
