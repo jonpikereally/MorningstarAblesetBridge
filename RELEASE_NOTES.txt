@@ -1,1 +1,1 @@
-Song names no longer stop updating after one odd reply from the pedal. Leaving the bank is still noticed straight away. Show Log now records when updates pause or resume and any bank name the pedal reported that wasn't recognised.
+Over USB the MC4 PRO shows four MIDI ports and only Port 4 answers; automatic mode now finds the port that answers. Adds the --colourtest command for checking LOOP's colours.

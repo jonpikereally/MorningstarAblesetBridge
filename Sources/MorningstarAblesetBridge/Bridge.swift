@@ -278,7 +278,30 @@ final class Bridge {
 
     // MARK: Pedal
 
+    /// Automatic mode with several matching ports (USB: "MC4 Pro Port 1"-"Port 4"):
+    /// ask them all once and use the one that answers. Repeated whenever the
+    /// set of matching ports changes.
+    private var searchedFor: [String] = []
+    private func autoPickIfNeeded() {
+        guard midi.exactName == nil else { return }
+        let ports = midi.matchingPortNames()
+        guard ports.count > 1, ports != searchedFor else { return }
+        searchedFor = ports
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.midi.exactName == nil else { return }
+            self.midi.search { [weak self] hits in
+                guard let self, let hit = hits.first(where: { ports.contains($0) }) else { return }
+                if self.midi.autoPick != hit {
+                    ErrorReporter.note("automatic port: \(hit) answers SysEx (of \(ports.joined(separator: ", ")))")
+                    self.midi.autoPick = hit
+                    self.midi.rescan()
+                }
+            }
+        }
+    }
+
     private func pedalConnectionChanged() {
+        autoPickIfNeeded()
         sent.removeAll()
         inBank = nil
         pollsUnanswered = 0
@@ -434,6 +457,7 @@ final class Bridge {
         let value = (trimmed?.isEmpty ?? true) ? nil : trimmed
         defaults.set(value, forKey: "pedalPort")
         midi.exactName = value
+        if value == nil { midi.autoPick = nil; searchedFor = [] }
         midi.rescan()
         pedalConnectionChanged()
     }

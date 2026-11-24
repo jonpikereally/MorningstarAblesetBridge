@@ -121,6 +121,15 @@ final class PedalMIDI {
     var isConnected: Bool { destination != 0 }
     /// When set, use the MIDI port with exactly this name instead of the first one containing `match`.
     var exactName: String?
+    /// Automatic mode only: the port a search found answering (over USB the
+    /// MC4 PRO shows Ports 1-4 and only Port 4 answers SysEx; v1.15).
+    var autoPick: String?
+
+    /// Destination names that automatic mode would consider.
+    func matchingPortNames() -> [String] {
+        let wanted = match.lowercased()
+        return Self.portNames().filter { $0.lowercased().contains(wanted) }
+    }
     private var searchHits: Set<String> = []
     private var searchRefs: [(MIDIEndpointRef, UnsafeMutableRawPointer)] = []
     private(set) var searching = false
@@ -269,8 +278,9 @@ final class PedalMIDI {
     func rescan() {
         guard !searching else { return }
         let wanted = match.lowercased()
+        let pick = exactName == nil ? autoPick.flatMap { Self.portNames().contains($0) ? $0 : nil } : nil
         let fits: (MIDIEndpointRef) -> Bool = { [exactName] ep in
-            if let exact = exactName { return Self.name(ep) == exact }
+            if let exact = exactName ?? pick { return Self.name(ep) == exact }
             return Self.name(ep).lowercased().contains(wanted)
         }
         let dest = Self.endpoints(sources: false).first(where: fits) ?? 0

@@ -61,6 +61,14 @@ extension Probe {
         midi.match = UserDefaults.standard.string(forKey: "pedalName") ?? "MC4"
         midi.exactName = UserDefaults.standard.string(forKey: "pedalPort")
         do { try midi.start() } catch { print("!! \(error)"); exit(1) }
+        if midi.exactName == nil, midi.matchingPortNames().count > 1 {
+            var done = false
+            midi.search { hits in
+                midi.autoPick = hits.first { midi.matchingPortNames().contains($0) }
+                midi.rescan(); done = true
+            }
+            while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+        }
         guard midi.isConnected else { print("!! MAB-302: no pedal port matching “\(midi.match)”"); exit(2) }
         print("Pedal: \(midi.destinationName!)")
         let p = 4
