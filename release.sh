@@ -107,7 +107,7 @@ mv -f updates/MorningstarAblesetBridge.zip.tmp updates/MorningstarAblesetBridge.
 # caches each file for ~5 minutes, so a fixed name could hand the updater the
 # previous zip right after a release (v1.6: "installs, then offers the update
 # again"). The plain-named zip stays for the README's download link.
-rm -f updates/MorningstarAblesetBridge-*.zip
+find updates -name "MorningstarAblesetBridge-*.zip" -delete
 cp updates/MorningstarAblesetBridge.zip "updates/MorningstarAblesetBridge-$VERSION.zip"
 # Manifest last, so a checking app never sees it pointing at a half-written zip.
 /usr/bin/python3 -c 'import json,sys; print(json.dumps({"version": sys.argv[1], "url": "MorningstarAblesetBridge-" + sys.argv[1] + ".zip", "notes": sys.argv[2]}))' \

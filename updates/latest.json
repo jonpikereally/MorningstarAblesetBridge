@@ -1,1 +1,1 @@
-{"version": "1.6", "url": "MorningstarAblesetBridge.zip", "notes": "The key now shows in brackets, like \"Red 125 (Am)\"."}
+{"version": "1.7", "url": "MorningstarAblesetBridge-1.7.zip", "notes": "Fixed: updating could install an older cached download and then offer the same update again. Each release now has its own download, and the updater checks the downloaded version before installing (error MAB-113 if it is wrong)."}
