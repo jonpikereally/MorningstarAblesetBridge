@@ -47,6 +47,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             info("    \(s.songName.isEmpty ? "No song" : s.songName)\(position)\(s.tempo.map { String(format: " · %.0f BPM", $0) } ?? "")")
             info("    \(s.playing ? "Playing" : "Stopped") · loop \(s.loop ? "on" : "off")\(s.key.map { " · key \($0)" } ?? "")")
             if !s.nextName.isEmpty { info("    Next: \(s.nextName)") }
+            if s.key == nil, !s.songName.isEmpty {
+                // Shows what AbleSet sent, so a missing key can be traced.
+                let d = s.songDescription.isEmpty ? "none" : "“\(s.songDescription.prefix(40))”"
+                let t = s.songTags.isEmpty ? "none" : s.songTags.joined(separator: " ")
+                info("    No key found · description \(d) · tags \(t)")
+            }
         } else {
             info("AbleSet: not answering on port \(bridge.ableSetPort)")
         }
@@ -82,15 +88,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        let bpm = NSMenuItem(title: "Show BPM", action: #selector(toggleBPM), keyEquivalent: "")
-        bpm.target = self
-        bpm.state = PedalView.showBPM ? .on : .off
-        menu.addItem(bpm)
-        let key = NSMenuItem(title: "Show Key", action: #selector(toggleKey), keyEquivalent: "")
-        key.target = self
-        key.state = PedalView.showKey ? .on : .off
-        key.toolTip = "Read from the song's AbleSet description (e.g. locator “Red {Key: Am}”) or a key tag like #Am."
-        menu.addItem(key)
+        let show = NSMenuItem(title: "Show on Pedal", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        func toggle(_ title: String, _ on: Bool, _ tag: Int, _ tip: String? = nil) {
+            let i = NSMenuItem(title: title, action: #selector(toggleShow(_:)), keyEquivalent: "")
+            i.target = self; i.tag = tag; i.state = on ? .on : .off; i.toolTip = tip
+            sub.addItem(i)
+        }
+        let keyTip = "Read from the song's AbleSet description (locator “Red {Key: Am}”), a key tag like #Am, or a key in brackets at the end of the name (“Red (Am)”)."
+        func header(_ t: String) { let h = NSMenuItem(title: t, action: nil, keyEquivalent: ""); h.isEnabled = false; sub.addItem(h) }
+        header("Current song (screen)")
+        toggle("BPM", PedalView.showBPM, 1)
+        toggle("Key", PedalView.showKey, 2, keyTip)
+        sub.addItem(.separator())
+        header("Previous / next songs (C and D)")
+        toggle("BPM", PedalView.showNeighbourBPM, 3)
+        toggle("Key", PedalView.showNeighbourKey, 4, keyTip)
+        show.submenu = sub
+        menu.addItem(show)
         let resend = NSMenuItem(title: "Resend Everything to Pedal", action: #selector(resend), keyEquivalent: "r")
         resend.target = self
         menu.addItem(resend)
@@ -120,8 +135,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func resend() { bridge.resendAll() }
-    @objc private func toggleBPM() { PedalView.showBPM.toggle(); bridge.displaySettingsChanged() }
-    @objc private func toggleKey() { PedalView.showKey.toggle(); bridge.displaySettingsChanged() }
+    @objc private func toggleShow(_ sender: NSMenuItem) {
+        switch sender.tag {
+        case 1: PedalView.showBPM.toggle()
+        case 2: PedalView.showKey.toggle()
+        case 3: PedalView.showNeighbourBPM.toggle()
+        default: PedalView.showNeighbourKey.toggle()
+        }
+        bridge.displaySettingsChanged()
+    }
 
     // MARK: Ports
 

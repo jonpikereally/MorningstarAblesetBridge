@@ -11,24 +11,59 @@ struct SetState: Equatable {
     var nextName = ""
     var songDescription = ""
     var songTags: [String] = []
+    var nextDescription = ""
+    var nextTags: [String] = []
+    var songTempos: [Double] = []
+    var songDescriptions: [String] = []
 
-    /// The song's key, from "Key: Am" in its AbleSet description (locator
-    /// text like `Red {Key: Am}`), or a tag that looks like a key (`#Am`, `#F#`, `#Bbm`).
-    var key: String? {
-        if let r = songDescription.range(of: #"(?i)\bkey\s*[:=]\s*([^,;}\]\)]+)"#, options: .regularExpression) {
-            let m = songDescription[r]
+    /// A key, from (in order): "Key: Am" in the description (locator text like
+    /// `Red {Key: Am}`), a description that is only a key (`{Am}`), a tag that
+    /// looks like a key (`#Am`, `#F#`, `#Bbm`), or a key in brackets at the
+    /// end of the song name (`Red (Am)`, `Red [F#m]`).
+    static func key(description: String, tags: [String], name: String) -> String? {
+        let keyLike = #"^[A-Ga-g][#b♯♭]?\s*(m|min|minor|maj|major|M)?$"#
+        if let r = description.range(of: #"(?i)\bkey\s*[:=]\s*([^,;}\]\)]+)"#, options: .regularExpression) {
+            let m = description[r]
             if let colon = m.firstIndex(where: { $0 == ":" || $0 == "=" }) {
                 let v = m[m.index(after: colon)...].trimmingCharacters(in: .whitespaces)
                 if !v.isEmpty { return v }
             }
         }
-        return songTags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
-            .first { $0.range(of: #"^[A-Ga-g][#b♯♭]?(m|min|maj|M)?$"#, options: .regularExpression) != nil }
+        let d = description.trimmingCharacters(in: .whitespaces)
+        if d.range(of: keyLike, options: .regularExpression) != nil { return d }
+        if let t = tags.map({ $0.hasPrefix("#") ? String($0.dropFirst()) : $0 })
+            .first(where: { $0.range(of: keyLike, options: .regularExpression) != nil }) { return t }
+        if let r = name.range(of: #"[\(\[]\s*[A-Ga-g][#b♯♭]?\s*(m|min|minor|maj|major|M)?\s*[\)\]]\s*$"#, options: .regularExpression) {
+            return name[r].trimmingCharacters(in: CharacterSet(charactersIn: "()[] "))
+        }
+        return nil
+    }
+
+    private func listed<T>(_ list: [T], _ i: Int?) -> T? {
+        guard let i, i >= 0, i < list.count else { return nil }
+        return list[i]
+    }
+
+    var key: String? {
+        Self.key(description: songDescription.isEmpty ? (listed(songDescriptions, songIndex) ?? "") : songDescription,
+                 tags: songTags, name: songName)
     }
 
     var previousName: String? {
         guard let i = songIndex, i > 0, i - 1 < songs.count else { return nil }
         return songs[i - 1]
+    }
+
+    var previousTempo: Double? { songIndex.flatMap { listed(songTempos, $0 - 1) } }
+    var previousKey: String? {
+        guard let name = previousName else { return nil }
+        return Self.key(description: songIndex.flatMap { listed(songDescriptions, $0 - 1) } ?? "", tags: [], name: name)
+    }
+    var nextTempo: Double? { songIndex.flatMap { listed(songTempos, $0 + 1) } }
+    var nextKey: String? {
+        guard !nextName.isEmpty else { return nil }
+        let d = nextDescription.isEmpty ? (songIndex.flatMap { listed(songDescriptions, $0 + 1) } ?? "") : nextDescription
+        return Self.key(description: d, tags: nextTags, name: nextName)
     }
 
     mutating func apply(_ m: OSCMessage) {
@@ -42,6 +77,10 @@ struct SetState: Equatable {
         case "/setlist/songs": songs = m.args.compactMap { $0.text }
         case "/setlist/activeSongDescription": songDescription = m.text ?? ""
         case "/setlist/activeSongTags": songTags = m.args.compactMap { $0.text }
+        case "/setlist/nextSongDescription": nextDescription = m.text ?? ""
+        case "/setlist/nextSongTags": nextTags = m.args.compactMap { $0.text }
+        case "/setlist/songTempos": songTempos = m.args.compactMap { $0.number }
+        case "/setlist/songDescriptions": songDescriptions = m.args.map { $0.text ?? "" }
         default: break
         }
     }
@@ -57,24 +96,37 @@ enum PedalView {
     // LED colours (Morningstar colour chart)
     static let green: UInt8 = 1, yellow: UInt8 = 4, orange: UInt8 = 8
 
-    /// Menu toggles (saved as the showBPM / showKey defaults).
-    static var showBPM: Bool {
-        get { UserDefaults.standard.object(forKey: "showBPM") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "showBPM") }
+    /// Menu toggles. Current song (screen): showBPM / showKey, on by default.
+    /// Previous / next songs (C and D): showNeighbourBPM / showNeighbourKey, off by default.
+    private static func flag(_ k: String, _ d: Bool) -> Bool { UserDefaults.standard.object(forKey: k) as? Bool ?? d }
+    static var showBPM: Bool { get { flag("showBPM", true) } set { UserDefaults.standard.set(newValue, forKey: "showBPM") } }
+    static var showKey: Bool { get { flag("showKey", true) } set { UserDefaults.standard.set(newValue, forKey: "showKey") } }
+    static var showNeighbourBPM: Bool { get { flag("showNeighbourBPM", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourBPM") } }
+    static var showNeighbourKey: Bool { get { flag("showNeighbourKey", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourKey") } }
+
+    static func bpmText(_ t: Double) -> String {
+        abs(t - t.rounded()) < 0.05 ? String(Int(t.rounded())) : String(format: "%.1f", t)
     }
-    static var showKey: Bool {
-        get { UserDefaults.standard.object(forKey: "showKey") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "showKey") }
+
+    static func label(_ name: String, tempo: Double?, key: String?, bpm showBPM: Bool, key showKey: Bool) -> String {
+        var parts = [name]
+        if showBPM, let t = tempo { parts.append(bpmText(t)) }
+        if showKey, let k = key { parts.append(k) }
+        return parts.joined(separator: " ")
     }
 
     /// "<song> <BPM> <key>", each extra only when switched on and known.
     static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey) -> String {
-        var parts = [s.songName.isEmpty ? "AbleSet" : s.songName]
-        if showBPM, let t = s.tempo {
-            parts.append(abs(t - t.rounded()) < 0.05 ? String(Int(t.rounded())) : String(format: "%.1f", t))
-        }
-        if showKey, let k = s.key { parts.append(k) }
-        return parts.joined(separator: " ")
+        label(s.songName.isEmpty ? "AbleSet" : s.songName, tempo: s.tempo, key: s.key, bpm: showBPM, key: showKey)
+    }
+
+    static func previousLabel(_ s: SetState, bpm: Bool = PedalView.showNeighbourBPM, key: Bool = PedalView.showNeighbourKey) -> String {
+        guard let name = s.previousName else { return "-" }
+        return label(name, tempo: s.previousTempo, key: s.previousKey, bpm: bpm, key: key)
+    }
+
+    static func nextLabel(_ s: SetState, bpm: Bool = PedalView.showNeighbourBPM, key: Bool = PedalView.showNeighbourKey) -> String {
+        s.nextName.isEmpty ? "-" : label(s.nextName, tempo: s.nextTempo, key: s.nextKey, bpm: bpm, key: key)
     }
 
     static func aLabel(_ s: SetState) -> (String, UInt8) {
@@ -86,8 +138,8 @@ enum PedalView {
         var out: [(String, [UInt8])] = []
         out.append(("bank", Morningstar.setBankName(bankTitle(s))))
         let (label, led) = aLabel(s)
-        let prev = s.previousName ?? "-"
-        let next = s.nextName.isEmpty ? "-" : s.nextName
+        let prev = previousLabel(s)
+        let next = nextLabel(s)
         for page in 0..<pages {
             let o = page * 4
             out.append(("A\(o)", Morningstar.setName(.short, preset: A + o, label)))
