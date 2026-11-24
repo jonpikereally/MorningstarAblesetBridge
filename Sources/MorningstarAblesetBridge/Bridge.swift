@@ -137,7 +137,7 @@ enum PedalView {
     /// toggle preset, so both of its names and colours are set; the pedal's own
     /// toggle position then doesn't matter.
     static func loopLabel(_ s: SetState) -> (String, UInt8) {
-        s.loop ? ("LOOP ON", orange) : ("LOOP OFF", yellow)
+        s.loop ? ("LOOP ON", yellow) : ("LOOP OFF", yellow)     // yellow both ways, as in the bank (Jon, 2026-11-24)
     }
 
     /// Presets of A on the playing pages (page 2 A = 4, page 4 A = 12).

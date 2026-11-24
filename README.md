@@ -14,7 +14,7 @@ A  PLAY             B  STOP            A  LOOP ON / OFF    B  STOP
 - **A** on page 1 is **PLAY**: it plays, then the pedal flips to page 2, where **A** is **LOOP** (loop on/off). **B** (STOP) stops and flips to the other page.
 - The bank name on the pedal's screen shows the current song and tempo, and a new song's name flashes on screen when the song changes.
 - **C** and **D** are renamed to the previous and next song names.
-- **LOOP** shows AbleSet's real loop state: **LOOP ON** (orange) or **LOOP OFF** (yellow). Without the app it shows the pedal's own guess.
+- **LOOP** shows AbleSet's real loop state: **LOOP ON** or **LOOP OFF**, yellow either way. Without the app it shows the pedal's own guess.
 - The pedal only knows its own presses. If AbleSet stops by itself (end of song, or stopped from the computer), the pedal stays on page 2 until you press STOP, with or without the app.
 
 It reads AbleSet's state over OSC and drives the pedal with Morningstar's [SysEx API for external applications](https://help.morningstar.io/en/article/sysex-documentation-for-external-applications-1n7gb7c/). It works over whatever MIDI link the Mac has to the pedal; Bluetooth has been tested, USB should work the same way. Every change is **temporary**: nothing is saved on the pedal, and its own names come back when you change banks. The bridge only writes while the **AbleSet Bridge** bank is showing.

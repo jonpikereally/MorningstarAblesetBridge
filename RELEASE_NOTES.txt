@@ -1,1 +1,1 @@
-The pedal now controls AbleSet by itself, and the app only changes what you see. Load the new AbleSet Bridge bank: A plays (note 12) and flips to page 2, where A is LOOP (note 14); STOP flips back. The app no longer sends AbleSet any play or loop command. Map notes 12 and 14 in AbleSet if they aren't already.
+LOOP stays yellow whether looping is on or off (it used to turn orange when on).
