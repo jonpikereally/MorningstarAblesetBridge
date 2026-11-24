@@ -59,9 +59,19 @@ struct SetState: Equatable {
         guard let name = previousName else { return nil }
         return Self.key(description: songIndex.flatMap { listed(songDescriptions, $0 - 1) } ?? "", tags: [], name: name)
     }
+    /// The next song in the setlist, from the setlist order like previousName.
+    /// AbleSet's own /setlist/nextSongName still names a song on the last one
+    /// (Jon, 2026-11-24), so it's only used when the setlist isn't known yet.
+    var nextSong: String? {
+        if let i = songIndex, !songs.isEmpty {
+            return i + 1 < songs.count ? songs[i + 1] : nil
+        }
+        return nextName.isEmpty ? nil : nextName
+    }
+
     var nextTempo: Double? { songIndex.flatMap { listed(songTempos, $0 + 1) } }
     var nextKey: String? {
-        guard !nextName.isEmpty else { return nil }
+        guard let nextName = nextSong else { return nil }
         let d = nextDescription.isEmpty ? (songIndex.flatMap { listed(songDescriptions, $0 + 1) } ?? "") : nextDescription
         return Self.key(description: d, tags: nextTags, name: nextName)
     }
@@ -130,7 +140,8 @@ enum PedalView {
     }
 
     static func nextLabel(_ s: SetState, bpm: Bool = PedalView.showNeighbourBPM, key: Bool = PedalView.showNeighbourKey) -> String {
-        s.nextName.isEmpty ? "-" : label(s.nextName, tempo: s.nextTempo, key: s.nextKey, bpm: bpm, key: key)
+        guard let name = s.nextSong else { return "-" }
+        return label(name, tempo: s.nextTempo, key: s.nextKey, bpm: bpm, key: key)
     }
 
     /// A on the playing pages (2 and 4): AbleSet's real loop state. That A is a

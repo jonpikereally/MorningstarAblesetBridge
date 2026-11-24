@@ -200,6 +200,13 @@ enum SelfTest {
         check(PedalView.loopLabel(s) == "LOOP ON", "LOOP switch says LOOP ON when loop is on")
         s.apply(OSCMessage(address: "/global/isPlaying", args: [.float(0)]))
         check(PedalView.loopLabel(s) == "LOOP ON", "LOOP switch keeps the loop state when stopped")
+        var last = SetState()
+        last.apply(OSCMessage(address: "/setlist/songs", args: [.string("One"), .string("Two")]))
+        last.apply(OSCMessage(address: "/setlist/activeSongIndex", args: [.float(1)]))
+        last.apply(OSCMessage(address: "/setlist/nextSongName", args: [.string("One")]))
+        check(PedalView.nextLabel(last) == "-", "last song in the setlist: no next song, whatever AbleSet's nextSongName says")
+        last.apply(OSCMessage(address: "/setlist/activeSongIndex", args: [.float(0)]))
+        check(PedalView.nextLabel(last, bpm: false, key: false) == "Two", "next song comes from the setlist order")
         let sentT: Set<String> = ["Red 125 (Am)"]
         check(Bridge.isOurTitle("Red 125 (Am)", sent: sentT, current: "", songs: []), "bank title we wrote is ours")
         check(Bridge.isOurTitle("Red 125 (A", sent: sentT, current: "", songs: []), "a title the pedal cut short is still ours")

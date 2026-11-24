@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let position = s.songIndex.map { " (\($0 + 1)/\(s.songs.count))" } ?? ""
             info("    \(s.songName.isEmpty ? "No song" : s.songName)\(position)\(s.tempo.map { String(format: " · %.0f BPM", $0) } ?? "")")
             info("    \(s.playing ? "Playing" : "Stopped") · loop \(s.loop ? "on" : "off")\(s.key.map { " · key \($0)" } ?? "")")
-            if !s.nextName.isEmpty { info("    Next: \(s.nextName)") }
+            if let n = s.nextSong { info("    Next: \(n)") }
             if s.key == nil, !s.songName.isEmpty {
                 // Shows what AbleSet sent, so a missing key can be traced.
                 let d = s.songDescription.isEmpty ? "none" : "“\(s.songDescription.prefix(40))”"
