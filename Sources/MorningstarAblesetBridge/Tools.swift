@@ -157,6 +157,13 @@ enum SelfTest {
         check(PedalView.loopLabel(s) == "LOOP ON", "LOOP switch says LOOP ON when loop is on")
         s.apply(OSCMessage(address: "/global/isPlaying", args: [.float(0)]))
         check(PedalView.loopLabel(s) == "LOOP ON", "LOOP switch keeps the loop state when stopped")
+        let sentT: Set<String> = ["Red 125 (Am)"]
+        check(Bridge.isOurTitle("Red 125 (Am)", sent: sentT, current: "", songs: []), "bank title we wrote is ours")
+        check(Bridge.isOurTitle("Red 125 (A", sent: sentT, current: "", songs: []), "a title the pedal cut short is still ours")
+        check(Bridge.isOurTitle("Red  125  (Am) ", sent: sentT, current: "", songs: []), "extra spaces don't matter")
+        check(Bridge.isOurTitle("Blue Moon 98", sent: [], current: "", songs: ["Blue Moon"]), "another Mac's title for a setlist song is ours")
+        check(!Bridge.isOurTitle("Arrow Keys", sent: sentT, current: "", songs: ["Red", "Blue Moon"]), "another bank isn't ours")
+        check(!Bridge.isOurTitle("Re", sent: sentT, current: "", songs: []), "a tiny fragment isn't enough")
         let echo = Morningstar.controllerInfo()
         var reply = echo; reply[5] = 0x01; reply[reply.count - 2] = Morningstar.checksum(reply.dropLast(2))
         check(!PedalMIDI.containsMorningstarReply(echo) && PedalMIDI.containsMorningstarReply(reply),

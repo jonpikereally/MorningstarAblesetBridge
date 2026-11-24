@@ -264,7 +264,9 @@ final class Bridge {
     }
 
     private func setInBank(_ now: Bool) {
+        if now { strangeReplies = 0 }
         guard now != inBank else { return }
+        ErrorReporter.note(now ? "bridge bank is showing: updating the pedal" : "bridge bank left: pedal updates paused")
         inBank = now
         if now {
             sent.removeAll()           // the pedal reset its names when the bank was entered
@@ -363,14 +365,45 @@ final class Bridge {
         guard r.op2 == 0x30 else { return }       // current bank name (the MC4 replies with op2 30)
         let name = r.text
         if Self.bankNames.contains(name) {
+            strangeReplies = 0
             // Freshly entered (or re-entered between polls): the pedal shows the saved names again.
             if inBank != true { setInBank(true) } else if sent["bank"] != nil, !titlesSent.contains(name) { sent.removeAll(); push() }
         } else {
             // A title this copy wrote, or one any copy (another Mac, an earlier run) would
             // write: "<a song in the setlist> <tempo>".
-            let mine = titlesSent.contains(name) || name == Self.stored(PedalView.bankTitle(state))
-                || state.songs.contains { name.hasPrefix(Self.stored($0) + " ") || name == Self.stored($0) }
-            setInBank(mine)
+            if Self.isOurTitle(name, sent: titlesSent, current: Self.stored(PedalView.bankTitle(state)), songs: state.songs) {
+                strangeReplies = 0
+                setInBank(true)
+            } else if inBank == true {
+                // v1.14: one odd reply used to switch updates off until the bank was
+                // re-entered (Jon: "song names stop updating"). Leaving the bank is
+                // announced by CC 111 = 0, so the poll is only a backup: believe it
+                // after three unrecognised answers in a row, and log what was seen.
+                strangeReplies += 1
+                ErrorReporter.note("pedal reported bank name “\(name)” (not ours, \(strangeReplies) in a row)")
+                if strangeReplies >= 3 { strangeReplies = 0; setInBank(false) }
+            } else {
+                setInBank(false)
+            }
+        }
+    }
+
+    private var strangeReplies = 0
+
+    /// A bank title this copy wrote, or one any copy (another Mac, an earlier
+    /// run) would write: "<a song in the setlist> <tempo> (<key>)". Also
+    /// accepts the pedal reporting a title cut short or with its own spacing.
+    static func isOurTitle(_ reported: String, sent: Set<String>, current: String, songs: [String]) -> Bool {
+        let name = reported.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return false }
+        let squash = { (t: String) in t.split(separator: " ").joined(separator: " ") }
+        let n = squash(name)
+        let titles = sent.union([current]).map(squash)
+        if titles.contains(n) { return true }
+        if n.count >= 6, titles.contains(where: { $0.hasPrefix(n) }) { return true }     // truncated by the pedal
+        return songs.contains { song in
+            let st = squash(stored(song))
+            return !st.isEmpty && (n == st || n.hasPrefix(st + " ") || (n.count >= 6 && st.hasPrefix(n)))
         }
     }
 
