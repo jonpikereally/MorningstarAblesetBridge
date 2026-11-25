@@ -172,6 +172,35 @@ enum PedalView {
         return parts.joined(separator: " ")
     }
 
+    /// Split long screen titles over two lines (v2.6). The MC4 PRO splits a
+    /// bank name where it contains the two characters "\n" (Morningstar manual:
+    /// "You can split text into 2 lines by typing \n").
+    static var twoLineTitles: Bool { get { flag("twoLineTitles", true) } set { UserDefaults.standard.set(newValue, forKey: "twoLineTitles") } }
+    static let lineLength = 16      // longer than this goes over two lines (a guess at what fits large)
+
+    /// The bank name actually written: bankTitle, split when long. The song (or
+    /// section) goes on line 1 and BPM / key / section on line 2; a long name
+    /// with nothing after it splits at the space nearest its middle.
+    static func screenTitle(_ s: SetState, twoLines: Bool = PedalView.twoLineTitles) -> String {
+        let title = bankTitle(s)
+        guard twoLines, title.count > lineLength else { return title }
+        let head = (s.sectionMode && PedalView.showSection && !PedalView.showSongInSectionMode)
+            ? (s.currentSection ?? "") : (s.songName.isEmpty ? "AbleSet" : s.songName)
+        return split(title, head: head)
+    }
+
+    static func split(_ title: String, head: String) -> String {
+        if !head.isEmpty, title.hasPrefix(head), title.count > head.count {
+            let rest = title.dropFirst(head.count).trimmingCharacters(in: .whitespaces)
+            if !rest.isEmpty { return head + "\\n" + rest }
+        }
+        let spaces = title.indices.filter { title[$0] == " " }
+        let middle = title.index(title.startIndex, offsetBy: title.count / 2)
+        guard let cut = spaces.min(by: { abs(title.distance(from: middle, to: $0)) < abs(title.distance(from: middle, to: $1)) })
+        else { return title }
+        return String(title[..<cut]) + "\\n" + String(title[title.index(after: cut)...])
+    }
+
     /// "<song> <BPM> (<key>)", each extra only when switched on and known.
     static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey,
                           section showSection: Bool = PedalView.showSection,
@@ -225,7 +254,7 @@ enum PedalView {
     /// screen shows the pressed preset's long name, so they stay as the bank has them.
     static func messages(_ s: SetState) -> [(key: String, bytes: [UInt8])] {
         var out: [(String, [UInt8])] = []
-        out.append(("bank", Morningstar.setBankName(bankTitle(s))))
+        out.append(("bank", Morningstar.setBankName(screenTitle(s))))
         let label = loopLabel(s)
         let prev = previousLabel(s)
         let next = nextLabel(s)
@@ -493,7 +522,7 @@ final class Bridge {
         } else {
             // A title this copy wrote, or one any copy (another Mac, an earlier run) would
             // write: "<a song in the setlist> <tempo>".
-            if Self.isOurTitle(name, sent: titlesSent, current: Self.stored(PedalView.bankTitle(state)), songs: state.songs + state.sections) {
+            if Self.isOurTitle(name, sent: titlesSent, current: Self.stored(PedalView.screenTitle(state)), songs: state.songs + state.sections) {
                 strangeReplies = 0
                 setInBank(true)
             } else if inBank == true {
@@ -518,7 +547,8 @@ final class Bridge {
     static func isOurTitle(_ reported: String, sent: Set<String>, current: String, songs: [String]) -> Bool {
         let name = reported.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return false }
-        let squash = { (t: String) in t.split(separator: " ").joined(separator: " ") }
+        // "\n" (two characters) is a line break on the pedal's screen: treat it as a space.
+        let squash = { (t: String) in t.replacingOccurrences(of: "\\n", with: " ").split(separator: " ").joined(separator: " ") }
         let n = squash(name)
         let titles = sent.union([current]).map(squash)
         if titles.contains(n) { return true }
@@ -539,7 +569,7 @@ final class Bridge {
     func push() {
         // Without AbleSet there's nothing true to show, so leave the pedal as it is.
         guard midi.isConnected, inBank == true, ableSetAlive else { return }
-        titlesSent.insert(Self.stored(PedalView.bankTitle(state)))
+        titlesSent.insert(Self.stored(PedalView.screenTitle(state)))
         for (key, bytes) in PedalView.messages(state) where sent[key] != bytes {
             midi.send(bytes)
             sent[key] = bytes

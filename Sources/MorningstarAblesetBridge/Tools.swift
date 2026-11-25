@@ -231,6 +231,11 @@ enum SelfTest {
         sec.apply(OSCMessage(address: "/setlist/activeSectionIndex", args: [.float(2)]))
         check(PedalView.nextSectionLabel(sec) == "-", "last section: no next section")
         check(Bridge.isOurTitle("Red 125 (Am) - Chorus", sent: [], current: "", songs: ["Red"]), "a title with a section is still recognised")
+        check(PedalView.split("Getaway Car 86 (C)", head: "Getaway Car") == "Getaway Car\\n86 (C)", "long title: song on line 1, BPM and key on line 2")
+        check(PedalView.split("Somebody That I Used To Know", head: "Somebody That I Used To Know") == "Somebody That\\nI Used To Know", "long name alone: split at the middle space")
+        var short = SetState(); short.apply(OSCMessage(address: "/setlist/activeSongName", args: [.string("Red")]))
+        check(!PedalView.screenTitle(short, twoLines: true).contains("\\n"), "short titles stay on one line")
+        check(Bridge.isOurTitle("Getaway Car\\n86 (C)", sent: [], current: "", songs: ["Getaway Car"]), "a two-line title is still recognised")
         let sentT: Set<String> = ["Red 125 (Am)"]
         check(Bridge.isOurTitle("Red 125 (Am)", sent: sentT, current: "", songs: []), "bank title we wrote is ours")
         check(Bridge.isOurTitle("Red 125 (A", sent: sentT, current: "", songs: []), "a title the pedal cut short is still ours")

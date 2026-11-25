@@ -105,6 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         header("Screen: current song")
         toggle("BPM", PedalView.showBPM, 1)
         toggle("Key", PedalView.showKey, 2, keyTip)
+        toggle("Split Long Titles over Two Lines", PedalView.twoLineTitles, 7,
+               "Song on the first line, BPM / key / section on the second, when the title is longer than \(PedalView.lineLength) characters.")
         sub.addItem(.separator())
         header("C and D: previous / next song")
         toggle("BPM", PedalView.showNeighbourBPM, 3)
@@ -174,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case 3: PedalView.showNeighbourBPM.toggle()
         case 5: PedalView.showSection.toggle()
         case 6: PedalView.showSongInSectionMode.toggle()
+        case 7: PedalView.twoLineTitles.toggle()
         default: PedalView.showNeighbourKey.toggle()
         }
         bridge.displaySettingsChanged()

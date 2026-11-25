@@ -1,1 +1,1 @@
-The app has an icon: a four-switch pedal with a lit screen.
+Long titles on the screen split over two lines: the song on top, BPM / key / section underneath. Switch it off under Show on Pedal → Split Long Titles over Two Lines.
