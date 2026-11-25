@@ -227,7 +227,7 @@ enum SelfTest {
         check(!PedalMIDI.containsMorningstarReply(echo) && PedalMIDI.containsMorningstarReply(reply),
               "port search ignores our own question echoing back (IAC) but accepts a pedal reply")
         let msgs = PedalView.messages(s)
-        check(msgs.count == 1 + 2 * 3 + 4 * 2, "bank name + LOOP names/colour on pages 2 and 4 + C/D short names on every page")
+        check(msgs.count == 1 + 2 * 3 + 2 * 2, "bank name + LOOP names/colour on pages 2 and 4 + C/D song names on pages 1 and 2")
         check(!msgs.contains { $0.bytes[7] == 0x03 }, "no long names are ever written")
         let colourOps = msgs.filter { $0.bytes[7] == 0x05 }
         check(Set(colourOps.map { $0.bytes[8] }) == [4, 12], "only LOOP (pages 2/4) is ever recoloured")
@@ -235,7 +235,7 @@ enum SelfTest {
         var off = s; off.loop = false
         check(PedalView.loopColour(off) == 13, "LOOP OFF is 13 (a slightly different yellow on Jon's pedal)")
         let touched = Set(msgs.dropFirst().map { $0.bytes[8] })
-        check(touched == [4, 12, 2, 6, 10, 14, 3, 7, 11, 15], "only LOOP (pages 2/4), C and D are relabelled")
+        check(touched == [4, 12, 2, 6, 3, 7], "only LOOP (pages 2/4) and C/D on the song pages are relabelled; section switches (10, 11, 14, 15) are left alone")
         check(!touched.contains(0) && !touched.contains(8) && !touched.contains(1), "PLAY and STOP are left as the bank has them")
 
         let sub = OSCMessage(address: "/subscribe", args: [.string("127.0.0.1"), .int(39161), .string("MorningstarAblesetBridge")])

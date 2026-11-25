@@ -192,7 +192,9 @@ enum PedalView {
             let c = loopColour(s)
             out.append(("Acol\(p)", Morningstar.colours(preset: p, led: c, ledToggle: c, text: 0, background: c)))
         }
-        for page in 0..<pages {
+        // Song names on C/D of pages 1 and 2 only: on pages 3 and 4 (hold D)
+        // C/D are the bank's PREV / NEXT SECTION switches, left as they are.
+        for page in 0..<2 {
             let o = page * 4
             out.append(("C\(o)", Morningstar.setName(.short, preset: C + o, prev)))
             out.append(("D\(o)", Morningstar.setName(.short, preset: D + o, next)))

@@ -36,12 +36,14 @@ Load [`bank/AbleSet Bridge.json`](bank/) into a bank slot with the Morningstar e
 | A, page 2 | Note 14: LOOP on/off | stays on page 2 |
 | B | Note 13: STOP (held: note 19) | goes to the other page |
 | C | Note 15: previous song | |
-| D | Note 16: next song | |
+| D | Note 16: next song, sent when you let go | **hold D**: section mode (page 1 → 3, 2 → 4) |
+| C, pages 3/4 | Note 20: previous section | |
+| D, pages 3/4 | Note 21: next section, sent when you let go | **hold D**: back to songs (3 → 1, 4 → 2) |
 | entering / leaving the bank | CC 111 = 127 / 0 | only tells the app the bank is showing |
 
-Notes go out as Note On on press and Note Off on release, and the page change happens on release. Pages 3 and 4 repeat 1 and 2, so the A+B / C+D page combos never land on a blank page.
+Notes go out as Note On on press and Note Off on release, and the page change happens on release. D is the exception: it sends its note when you let go, so holding it only changes mode. Pages 3 and 4 are **section mode**: the same PLAY, LOOP and STOP as pages 1 and 2 (PLAY goes 3 → 4, STOP flips 3 ↔ 4), with C and D moving between sections instead of songs. MAB leaves the section switches' names alone.
 
-Map notes 12, 13, 14, 15 and 16 (and 19 if you like) in AbleSet's MIDI mapping. They are the same notes as the MC6 Playback Ableset and AbleSet Play-Loop banks, so an existing mapping already covers them. **Don't map CC 111.**
+Map notes 12, 13, 14, 15 and 16 (and 19 if you like) in AbleSet's MIDI mapping, plus **20 (previous section) and 21 (next section)** for section mode. They are the same notes as the MC6 Playback Ableset and AbleSet Play-Loop banks, so an existing mapping already covers them. **Don't map CC 111.**
 
 ## Ableton Live side
 

@@ -1,1 +1,1 @@
-A song without a key no longer shows one. Before, it could keep the previous song's key, or treat a lowercase letter like "#e" or "(a)" as a key.
+Section mode: hold D to turn C and D into previous/next section (notes 20 and 21; map them in AbleSet), and hold D again to go back to songs. PLAY, STOP and LOOP work the same in both modes. D now sends its note when you let go. Needs the new AbleSet Bridge bank loaded on the pedal.
