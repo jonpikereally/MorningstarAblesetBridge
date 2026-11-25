@@ -157,6 +157,8 @@ enum PedalView {
     static var showNeighbourBPM: Bool { get { flag("showNeighbourBPM", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourBPM") } }
     static var showNeighbourKey: Bool { get { flag("showNeighbourKey", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourKey") } }
     /// In section mode, the current section after the song on the screen: "Red 125 (Am) - Chorus".
+    /// In section mode, keep the song title in front of the section (on) or show the section alone (off).
+    static var showSongInSectionMode: Bool { get { flag("showSongInSectionMode", true) } set { UserDefaults.standard.set(newValue, forKey: "showSongInSectionMode") } }
     static var showSection: Bool { get { flag("showSection", true) } set { UserDefaults.standard.set(newValue, forKey: "showSection") } }
 
     static func bpmText(_ t: Double) -> String {
@@ -172,9 +174,12 @@ enum PedalView {
 
     /// "<song> <BPM> (<key>)", each extra only when switched on and known.
     static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey,
-                          section showSection: Bool = PedalView.showSection) -> String {
+                          section showSection: Bool = PedalView.showSection,
+                          songTitle showSongTitle: Bool = PedalView.showSongInSectionMode) -> String {
         let song = label(s.songName.isEmpty ? "AbleSet" : s.songName, tempo: s.tempo, key: s.key, bpm: showBPM, key: showKey)
         guard showSection, s.sectionMode, let section = s.currentSection, !section.isEmpty else { return song }
+        // Song title hidden: the section takes its place, BPM and key still follow their toggles.
+        if !showSongTitle { return label(section, tempo: s.tempo, key: s.key, bpm: showBPM, key: showKey) }
         return song + " - " + section      // ASCII only: the pedal's font has no "·"
     }
 
@@ -488,7 +493,7 @@ final class Bridge {
         } else {
             // A title this copy wrote, or one any copy (another Mac, an earlier run) would
             // write: "<a song in the setlist> <tempo>".
-            if Self.isOurTitle(name, sent: titlesSent, current: Self.stored(PedalView.bankTitle(state)), songs: state.songs) {
+            if Self.isOurTitle(name, sent: titlesSent, current: Self.stored(PedalView.bankTitle(state)), songs: state.songs + state.sections) {
                 strangeReplies = 0
                 setInBank(true)
             } else if inBank == true {

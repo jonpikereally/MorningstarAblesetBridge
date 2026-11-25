@@ -224,7 +224,9 @@ enum SelfTest {
         check(PedalView.previousSectionLabel(sec) == "Intro" && PedalView.nextSectionLabel(sec) == "Chorus", "previous / next section from the song's section list")
         check(PedalView.bankTitle(sec, bpm: false, key: false, section: true) == "Red", "song mode: no section on the screen")
         sec.sectionMode = true
-        check(PedalView.bankTitle(sec, bpm: false, key: false, section: true) == "Red - Verse", "section mode: current section after the song on the screen")
+        check(PedalView.bankTitle(sec, bpm: false, key: false, section: true, songTitle: true) == "Red - Verse", "section mode: current section after the song on the screen")
+        check(PedalView.bankTitle(sec, bpm: false, key: false, section: true, songTitle: false) == "Verse", "section mode with the song title hidden: section alone")
+        check(Bridge.isOurTitle("Verse 120", sent: [], current: "", songs: ["Red", "Intro", "Verse"]), "a section-only title is still recognised after a restart")
         check(PedalView.bankTitle(sec, bpm: false, key: false, section: false) == "Red", "section on the screen can be switched off")
         sec.apply(OSCMessage(address: "/setlist/activeSectionIndex", args: [.float(2)]))
         check(PedalView.nextSectionLabel(sec) == "-", "last section: no next section")

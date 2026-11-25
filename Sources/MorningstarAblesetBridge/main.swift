@@ -104,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggle("BPM", PedalView.showBPM, 1)
         toggle("Key", PedalView.showKey, 2, keyTip)
         toggle("Current Section (in section mode)", PedalView.showSection, 5, "While you're in section mode (hold D), the section that's playing after the song: “Red 125 (Am) - Chorus”.")
+        toggle("Song Title (in section mode)", PedalView.showSongInSectionMode, 6, "Off: in section mode the screen shows the section instead of the song: “Chorus 125 (Am)”.")
         sub.addItem(.separator())
         header("Previous / next songs (C and D)")
         toggle("BPM", PedalView.showNeighbourBPM, 3)
@@ -166,6 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case 2: PedalView.showKey.toggle()
         case 3: PedalView.showNeighbourBPM.toggle()
         case 5: PedalView.showSection.toggle()
+        case 6: PedalView.showSongInSectionMode.toggle()
         default: PedalView.showNeighbourKey.toggle()
         }
         bridge.displaySettingsChanged()
