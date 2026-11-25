@@ -93,22 +93,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         let show = NSMenuItem(title: "Show on Pedal", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        func toggle(_ title: String, _ on: Bool, _ tag: Int, _ tip: String? = nil) {
-            let i = NSMenuItem(title: title, action: #selector(toggleShow(_:)), keyEquivalent: "")
+        func toggle(_ title: String, _ on: Bool, _ tag: Int, _ tip: String? = nil, enabled: Bool = true) {
+            let i = NSMenuItem(title: title, action: enabled ? #selector(toggleShow(_:)) : nil, keyEquivalent: "")
             i.target = self; i.tag = tag; i.state = on ? .on : .off; i.toolTip = tip
+            i.indentationLevel = 1
             sub.addItem(i)
         }
         let keyTip = "Read from the song's AbleSet description (locator “Red {Key: Am}”), a key tag like #Am, or a key in brackets at the end of the name (“Red (Am)”)."
         func header(_ t: String) { let h = NSMenuItem(title: t, action: nil, keyEquivalent: ""); h.isEnabled = false; sub.addItem(h) }
-        header("Current song (screen)")
+        // Grouped by where it shows up on the pedal (v2.4).
+        header("Screen: current song")
         toggle("BPM", PedalView.showBPM, 1)
         toggle("Key", PedalView.showKey, 2, keyTip)
-        toggle("Current Section (in section mode)", PedalView.showSection, 5, "While you're in section mode (hold D), the section that's playing after the song: “Red 125 (Am) - Chorus”.")
-        toggle("Song Title (in section mode)", PedalView.showSongInSectionMode, 6, "Off: in section mode the screen shows the section instead of the song: “Chorus 125 (Am)”.")
         sub.addItem(.separator())
-        header("Previous / next songs (C and D)")
+        header("C and D: previous / next song")
         toggle("BPM", PedalView.showNeighbourBPM, 3)
         toggle("Key", PedalView.showNeighbourKey, 4, keyTip)
+        sub.addItem(.separator())
+        header("Section mode (hold D)")
+        toggle("Current Section on Screen", PedalView.showSection, 5,
+               "The section that's playing, on the screen: “Red 125 (Am) - Chorus”. C and D always show the previous / next section.")
+        toggle("Song Title with the Section", PedalView.showSongInSectionMode, 6,
+               "Off: the section replaces the song title: “Chorus 125 (Am)”.", enabled: PedalView.showSection)
         show.submenu = sub
         menu.addItem(show)
         let bt = NSMenuItem(title: "Connect Bluetooth MIDI Device…", action: #selector(connectBluetooth), keyEquivalent: "")
