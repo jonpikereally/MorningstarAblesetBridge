@@ -18,6 +18,11 @@ struct SetState: Equatable {
     // Which song each description / tag list arrived for (v1.18): AbleSet sends
     // them separately, so a song without them would otherwise show the
     // previous song's key.
+    // Sections of the current song (v2.1): names in order, the current one's
+    // index, and its name. Previous / next come from the list, like songs.
+    var sections: [String] = []
+    var sectionIndex: Int?
+    var sectionName = ""
     var songDescriptionFor = ""
     var songTagsFor = ""
     var nextDescriptionFor = ""
@@ -71,6 +76,20 @@ struct SetState: Equatable {
         guard let name = previousName else { return nil }
         return Self.key(description: songIndex.flatMap { listed(songDescriptions, $0 - 1) } ?? "", tags: [], name: name)
     }
+    var previousSection: String? {
+        guard let i = sectionIndex, i > 0, i - 1 < sections.count else { return nil }
+        return sections[i - 1]
+    }
+    var nextSection: String? {
+        guard let i = sectionIndex, i + 1 < sections.count, i + 1 >= 0 else { return nil }
+        return sections[i + 1]
+    }
+    var currentSection: String? {
+        if !sectionName.isEmpty { return sectionName }
+        guard let i = sectionIndex, i >= 0, i < sections.count else { return nil }
+        return sections[i]
+    }
+
     /// The next song in the setlist, from the setlist order like previousName.
     /// AbleSet's own /setlist/nextSongName still names a song on the last one
     /// (Jon, 2026-11-24), so it's only used when the setlist isn't known yet.
@@ -103,6 +122,9 @@ struct SetState: Equatable {
         case "/setlist/activeSongTags": songTags = m.args.compactMap { $0.text }; songTagsFor = songName
         case "/setlist/nextSongDescription": nextDescription = m.text ?? ""; nextDescriptionFor = nextName
         case "/setlist/nextSongTags": nextTags = m.args.compactMap { $0.text }; nextTagsFor = nextName
+        case "/setlist/sections": sections = m.args.compactMap { $0.text }
+        case "/setlist/activeSectionIndex": sectionIndex = m.number.map { Int($0) }
+        case "/setlist/activeSectionName": sectionName = m.text ?? ""
         case "/setlist/songTempos": songTempos = m.args.compactMap { $0.number }
         case "/setlist/songDescriptions": songDescriptions = m.args.map { $0.text ?? "" }
         default: break
@@ -131,6 +153,8 @@ enum PedalView {
     static var showKey: Bool { get { flag("showKey", true) } set { UserDefaults.standard.set(newValue, forKey: "showKey") } }
     static var showNeighbourBPM: Bool { get { flag("showNeighbourBPM", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourBPM") } }
     static var showNeighbourKey: Bool { get { flag("showNeighbourKey", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourKey") } }
+    /// Current section after the song on the screen: "Red 125 (Am) · Chorus".
+    static var showSection: Bool { get { flag("showSection", true) } set { UserDefaults.standard.set(newValue, forKey: "showSection") } }
 
     static func bpmText(_ t: Double) -> String {
         abs(t - t.rounded()) < 0.05 ? String(Int(t.rounded())) : String(format: "%.1f", t)
@@ -144,8 +168,20 @@ enum PedalView {
     }
 
     /// "<song> <BPM> (<key>)", each extra only when switched on and known.
-    static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey) -> String {
-        label(s.songName.isEmpty ? "AbleSet" : s.songName, tempo: s.tempo, key: s.key, bpm: showBPM, key: showKey)
+    static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey,
+                          section showSection: Bool = PedalView.showSection) -> String {
+        let song = label(s.songName.isEmpty ? "AbleSet" : s.songName, tempo: s.tempo, key: s.key, bpm: showBPM, key: showKey)
+        guard showSection, let section = s.currentSection, !section.isEmpty else { return song }
+        return song + " - " + section      // ASCII only: the pedal's font has no "·"
+    }
+
+    /// C / D in section mode (pages 3 and 4). With no sections known they get
+    /// the bank's own names back.
+    static func previousSectionLabel(_ s: SetState) -> String {
+        s.sections.isEmpty ? "PREV SECTION" : (s.previousSection ?? "-")
+    }
+    static func nextSectionLabel(_ s: SetState) -> String {
+        s.sections.isEmpty ? "NEXT SECTION" : (s.nextSection ?? "-")
     }
 
     static func previousLabel(_ s: SetState, bpm: Bool = PedalView.showNeighbourBPM, key: Bool = PedalView.showNeighbourKey) -> String {
@@ -198,6 +234,14 @@ enum PedalView {
             let o = page * 4
             out.append(("C\(o)", Morningstar.setName(.short, preset: C + o, prev)))
             out.append(("D\(o)", Morningstar.setName(.short, preset: D + o, next)))
+        }
+        // Section mode (pages 3 and 4): previous / next section of the current song.
+        let prevSection = previousSectionLabel(s)
+        let nextSection = nextSectionLabel(s)
+        for page in 2..<4 {
+            let o = page * 4
+            out.append(("C\(o)", Morningstar.setName(.short, preset: C + o, prevSection)))
+            out.append(("D\(o)", Morningstar.setName(.short, preset: D + o, nextSection)))
         }
         return out
     }

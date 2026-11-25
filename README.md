@@ -41,7 +41,7 @@ Load [`bank/AbleSet Bridge.json`](bank/) into a bank slot with the Morningstar e
 | D, pages 3/4 | Note 21: next section, sent when you let go | **hold D**: back to songs (3 → 1, 4 → 2) |
 | entering / leaving the bank | CC 111 = 127 / 0 | only tells the app the bank is showing |
 
-Notes go out as Note On on press and Note Off on release, and the page change happens on release. D is the exception: it sends its note when you let go, so holding it only changes mode. Pages 3 and 4 are **section mode**: the same PLAY, LOOP and STOP as pages 1 and 2 (PLAY goes 3 → 4, STOP flips 3 ↔ 4), with C and D moving between sections instead of songs. MAB leaves the section switches' names alone.
+Notes go out as Note On on press and Note Off on release, and the page change happens on release. D is the exception: it sends its note when you let go, so holding it only changes mode. Pages 3 and 4 are **section mode**: the same PLAY, LOOP and STOP as pages 1 and 2 (PLAY goes 3 → 4, STOP flips 3 ↔ 4), with C and D moving between sections instead of songs. MAB renames the section switches to the previous and next section of the current song ("-" at either end), from AbleSet's `/setlist/sections` and `/setlist/activeSectionIndex`.
 
 Map notes 12, 13, 14, 15 and 16 (and 19 if you like) in AbleSet's MIDI mapping, plus **20 (previous section) and 21 (next section)** for section mode. They are the same notes as the MC6 Playback Ableset and AbleSet Play-Loop banks, so an existing mapping already covers them. **Don't map CC 111.**
 
@@ -71,7 +71,7 @@ python3 tools/ableset_osc_probe.py                                              
 
 To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`, then commit and push `updates/`. Every installed copy offers it within six hours.
 
-**Show on Pedal** (menu) switches the BPM and key on or off (shown like `Red 125 (Am)`), separately for the current song (on the screen) and for the previous and next songs (C and D). AbleSet has no key field, so the key comes from, in order: `Key: Am` in the song's description (locator text like `Red {Key: Am}`), a description that's only the key (`Red {Am}`), a tag that looks like a key (`#Am`, `#F#`), or a key in brackets at the end of the name (`Red (Am)`). When none is found, the menu shows what AbleSet sent for the song.
+**Show on Pedal** (menu) switches the BPM, key and **current section** ("Red 125 (Am) - Chorus", on by default) on or off (shown like `Red 125 (Am)`), separately for the current song (on the screen) and for the previous and next songs (C and D). AbleSet has no key field, so the key comes from, in order: `Key: Am` in the song's description (locator text like `Red {Key: Am}`), a description that's only the key (`Red {Am}`), a tag that looks like a key (`#Am`, `#F#`), or a key in brackets at the end of the name (`Red (Am)`). When none is found, the menu shows what AbleSet sent for the song.
 
 In the menu, **Connect Bluetooth MIDI Device…** opens macOS's Bluetooth MIDI window (the same one as Audio MIDI Setup → MIDI Studio → Bluetooth): click **Connect** next to the MC4 PRO and the bridge picks it up. macOS asks once for Bluetooth permission. **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
 

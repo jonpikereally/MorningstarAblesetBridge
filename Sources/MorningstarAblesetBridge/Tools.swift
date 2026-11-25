@@ -215,6 +215,18 @@ enum SelfTest {
         check(k.key == nil, "a song without a key shows none (the last song's description doesn't carry over)")
         check(SetState.key(description: "", tags: ["#e"], name: "Intro (a)") == nil, "lowercase letters aren't keys")
         check(SetState.key(description: "", tags: ["#F#m"], name: "x") == "F#m", "a capital key tag still works")
+        var sec = SetState()
+        sec.apply(OSCMessage(address: "/setlist/activeSongName", args: [.string("Red")]))
+        check(PedalView.previousSectionLabel(sec) == "PREV SECTION" && PedalView.nextSectionLabel(sec) == "NEXT SECTION", "no sections known: section switches keep the bank's names")
+        sec.apply(OSCMessage(address: "/setlist/sections", args: [.string("Intro"), .string("Verse"), .string("Chorus")]))
+        sec.apply(OSCMessage(address: "/setlist/activeSectionIndex", args: [.float(1)]))
+        sec.apply(OSCMessage(address: "/setlist/activeSectionName", args: [.string("Verse")]))
+        check(PedalView.previousSectionLabel(sec) == "Intro" && PedalView.nextSectionLabel(sec) == "Chorus", "previous / next section from the song's section list")
+        check(PedalView.bankTitle(sec, bpm: false, key: false, section: true) == "Red - Verse", "current section after the song on the screen")
+        check(PedalView.bankTitle(sec, bpm: false, key: false, section: false) == "Red", "section on the screen can be switched off")
+        sec.apply(OSCMessage(address: "/setlist/activeSectionIndex", args: [.float(2)]))
+        check(PedalView.nextSectionLabel(sec) == "-", "last section: no next section")
+        check(Bridge.isOurTitle("Red 125 (Am) - Chorus", sent: [], current: "", songs: ["Red"]), "a title with a section is still recognised")
         let sentT: Set<String> = ["Red 125 (Am)"]
         check(Bridge.isOurTitle("Red 125 (Am)", sent: sentT, current: "", songs: []), "bank title we wrote is ours")
         check(Bridge.isOurTitle("Red 125 (A", sent: sentT, current: "", songs: []), "a title the pedal cut short is still ours")
@@ -227,7 +239,7 @@ enum SelfTest {
         check(!PedalMIDI.containsMorningstarReply(echo) && PedalMIDI.containsMorningstarReply(reply),
               "port search ignores our own question echoing back (IAC) but accepts a pedal reply")
         let msgs = PedalView.messages(s)
-        check(msgs.count == 1 + 2 * 3 + 2 * 2, "bank name + LOOP names/colour on pages 2 and 4 + C/D song names on pages 1 and 2")
+        check(msgs.count == 1 + 2 * 3 + 2 * 2 + 2 * 2, "bank name + LOOP names/colour on pages 2 and 4 + C/D song names on pages 1/2 + section names on 3/4")
         check(!msgs.contains { $0.bytes[7] == 0x03 }, "no long names are ever written")
         let colourOps = msgs.filter { $0.bytes[7] == 0x05 }
         check(Set(colourOps.map { $0.bytes[8] }) == [4, 12], "only LOOP (pages 2/4) is ever recoloured")
@@ -235,7 +247,7 @@ enum SelfTest {
         var off = s; off.loop = false
         check(PedalView.loopColour(off) == 13, "LOOP OFF is 13 (a slightly different yellow on Jon's pedal)")
         let touched = Set(msgs.dropFirst().map { $0.bytes[8] })
-        check(touched == [4, 12, 2, 6, 3, 7], "only LOOP (pages 2/4) and C/D on the song pages are relabelled; section switches (10, 11, 14, 15) are left alone")
+        check(touched == [4, 12, 2, 6, 3, 7, 10, 14, 11, 15], "only LOOP (pages 2/4) and C/D are relabelled; PLAY and STOP never")
         check(!touched.contains(0) && !touched.contains(8) && !touched.contains(1), "PLAY and STOP are left as the bank has them")
 
         let sub = OSCMessage(address: "/subscribe", args: [.string("127.0.0.1"), .int(39161), .string("MorningstarAblesetBridge")])
