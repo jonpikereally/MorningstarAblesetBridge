@@ -1,1 +1,1 @@
-Show on Pedal is reorganised by where things appear: Screen, C and D, and Section mode (hold D).
+The app has an icon: a four-switch pedal with a lit screen.

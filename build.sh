@@ -17,6 +17,8 @@ SWIFT
 CACHE="${TMPDIR:-/tmp}/mab-modcache"
 mkdir -p "$CACHE" MorningstarAblesetBridge.app/Contents/MacOS
 cp Resources/Info.plist MorningstarAblesetBridge.app/Contents/Info.plist
+mkdir -p MorningstarAblesetBridge.app/Contents/Resources
+cp Resources/AppIcon.icns MorningstarAblesetBridge.app/Contents/Resources/AppIcon.icns
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" MorningstarAblesetBridge.app/Contents/Info.plist
 swiftc -O -target arm64-apple-macos13 -module-cache-path "$CACHE" -o MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge Sources/MorningstarAblesetBridge/*.swift
 codesign --force --sign - MorningstarAblesetBridge.app

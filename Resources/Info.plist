@@ -6,6 +6,8 @@
 	<string>MorningstarAblesetBridge</string>
 	<key>CFBundleExecutable</key>
 	<string>MorningstarAblesetBridge</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.jonpike.morningstarablesetbridge</string>
 	<key>CFBundleName</key>
