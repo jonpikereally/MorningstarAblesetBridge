@@ -307,6 +307,17 @@ final class Bridge {
     private(set) var problems: [ErrorCode: AppError] = [:]
 
     let midi = PedalMIDI()
+    /// Brings the pedal back over Bluetooth MIDI (v2.8).
+    let bluetooth = BluetoothReconnect(makeRadio: { CoreBluetoothRadio() })
+    /// The port the bridge talks to is a Bluetooth one, so losing it means the pedal dropped off Bluetooth.
+    private var pedalOnBluetooth = false
+    /// Why the last automatic Bluetooth reconnect didn't start, for the menu.
+    private(set) var bluetoothHeldOff: String?
+    /// Set by the app: the open window that manages Bluetooth MIDI connections
+    /// (its own Bluetooth MIDI window, Audio MIDI Setup), or nil.
+    var bluetoothManager: () -> String? = { nil }
+    static let autoLookSeconds: TimeInterval = 600
+    static let askedLookSeconds: TimeInterval = 120
     private let osc = OSCTransport()
     private var lastAbleSet: Date?
     private var sent: [String: [UInt8]] = [:]
@@ -335,6 +346,18 @@ final class Bridge {
         midi.onRaw = { [weak self] in self?.recordRaw($0) }
         midi.onConnectionChange = { [weak self] in self?.pedalConnectionChanged() }
         midi.onSendError = { [weak self] in self?.raise($0) }
+        bluetooth.isPedal = { [weak self] d in
+            guard let self else { return false }
+            return d.id.uuidString == self.defaults.string(forKey: "bluetoothPedalID")
+                || Self.isPedalName(d.name, match: self.midi.match, exactName: self.midi.exactName)
+        }
+        bluetooth.isOnline = { d in
+            !d.name.isEmpty && PedalMIDI.bluetoothPortNames().contains { $0.lowercased().contains(d.name.lowercased()) }
+        }
+        bluetooth.onReconnected = { [weak self] d in self?.defaults.set(d.id.uuidString, forKey: "bluetoothPedalID") }
+        bluetooth.raise = { [weak self] in self?.raise($0) }
+        bluetooth.clear = { [weak self] in self?.clear($0) }
+        bluetooth.onChange = { [weak self] in self?.onChange() }
         do { try midi.start() } catch let e as AppError { raise(e) } catch { raise(AppError(.unexpected, "\(error)")) }
 
         osc.onMessages = { [weak self] msgs in DispatchQueue.main.async { self?.ableSet(msgs) } }
@@ -346,6 +369,9 @@ final class Bridge {
         timers.append(Timer.common(2) { [weak self] in self?.checkAbleSet() })
         timers.append(Timer.common(1.5) { [weak self] in self?.pollPedal() })
         pedalConnectionChanged()
+        if !midi.isConnected, defaults.bool(forKey: "pedalOnBluetooth") {
+            lookOverBluetooth(asked: false, why: "it was on Bluetooth last time")
+        }
     }
 
     // MARK: AbleSet
@@ -474,8 +500,19 @@ final class Bridge {
         lastReply = nil
         if midi.isConnected {
             clear(.pedalNotFound)
+            pedalOnBluetooth = midi.destinationIsBluetooth
+            defaults.set(pedalOnBluetooth, forKey: "pedalOnBluetooth")
+            bluetoothHeldOff = nil
+            bluetooth.pedalArrived()
+            // Starts Bluetooth now, so macOS's one-time permission question comes
+            // while the pedal is being set up, not later when it drops out.
+            if pedalOnBluetooth, autoReconnectBluetooth { bluetooth.prepare() }
         } else {
             raise(AppError(.pedalNotFound, "No MIDI device whose name contains “\(midi.match)”"))
+            if pedalOnBluetooth {
+                pedalOnBluetooth = false
+                lookOverBluetooth(asked: false, why: "it dropped off Bluetooth")
+            }
         }
         onChange()
     }
@@ -629,6 +666,7 @@ final class Bridge {
         if value == nil { midi.autoPick = nil; searchedFor = [] }
         midi.rescan()
         pedalConnectionChanged()
+        if let v = value, !v.lowercased().contains("bluetooth") { bluetooth.stop("the pedal port was set to “\(v)”") }
     }
 
     /// Finds the port that answers Morningstar SysEx and switches to it.
@@ -664,6 +702,7 @@ final class Bridge {
     /// Menu: Reconnect. Reopens the pedal's MIDI ports, forgets what the pedal
     /// was showing, re-subscribes to AbleSet and asks the pedal which bank it's
     /// on; the names are rewritten as soon as it answers with the bridge bank.
+    /// When the pedal isn't there, it's looked for over Bluetooth (v2.8).
     func reconnect() {
         problems.removeAll()
         searchedFor = []            // ask the pedal's ports again which one answers
@@ -671,8 +710,92 @@ final class Bridge {
         pedalConnectionChanged()
         lastAbleSet = Date()
         subscribe()
-        if midi.isConnected { midi.send(Morningstar.currentBankName(), key: "poll") }
+        if midi.isConnected {
+            midi.send(Morningstar.currentBankName(), key: "poll")
+        } else {
+            lookOverBluetooth(asked: true, why: "Reconnect chosen")
+        }
         onChange()
+    }
+
+    // MARK: Bluetooth (v2.8)
+
+    /// Looks for the pedal over Bluetooth and reconnects it: not when it's
+    /// connected, or when a non-Bluetooth port was picked by hand. Automatic
+    /// looks also follow the menu switch, and hold off while a Bluetooth MIDI
+    /// window is open, where someone may be disconnecting the pedal on purpose.
+    private func lookOverBluetooth(asked: Bool, why: String) {
+        guard !midi.isConnected else { return }
+        // A USB (or other) port picked by hand: Bluetooth isn't wanted, and Reconnect wouldn't help either.
+        if let exact = midi.exactName, !exact.lowercased().contains("bluetooth") { return }
+        var reason = Self.bluetoothHoldOff(asked: asked, exactName: midi.exactName, automatic: autoReconnectBluetooth,
+                                           manager: asked ? nil : bluetoothManager())
+        if reason == nil, !bluetooth.look(for: asked ? Self.askedLookSeconds : Self.autoLookSeconds, asked: asked) {
+            reason = "it dropped out right after reconnecting \(BluetoothReconnect.maxAutoReconnects) times in 10 minutes"
+        }
+        bluetoothHeldOff = reason
+        ErrorReporter.note("Bluetooth: " + (reason.map { "not looking for the pedal (\(why)): \($0)" } ?? "looking for the pedal (\(why))"))
+        onChange()
+    }
+
+    /// Why a look over Bluetooth shouldn't start, or nil.
+    static func bluetoothHoldOff(asked: Bool, exactName: String?, automatic: Bool, manager: String?) -> String? {
+        if let exact = exactName, !exact.lowercased().contains("bluetooth") { return "the pedal port is set to “\(exact)”" }
+        guard !asked else { return nil }
+        if !automatic { return "Reconnect Bluetooth Automatically is off" }
+        if let manager { return "\(manager) is open" }
+        return nil
+    }
+
+    /// Whether a name the pedal advertises over Bluetooth is the pedal's: it
+    /// contains the pedal name ("MC4"), or the chosen port's name contains it.
+    static func isPedalName(_ name: String, match: String, exactName: String?) -> Bool {
+        let n = name.trimmingCharacters(in: .whitespaces).lowercased()
+        guard n.count >= 3 else { return false }
+        if !match.isEmpty, n.contains(match.lowercased()) { return true }
+        return exactName?.lowercased().contains(n) ?? false
+    }
+
+    /// Menu switch, on by default: reconnect by itself when the pedal drops
+    /// off Bluetooth, or isn't there at launch after being on Bluetooth.
+    var autoReconnectBluetooth: Bool {
+        get { defaults.object(forKey: "autoReconnectBluetooth") as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: "autoReconnectBluetooth")
+            if !newValue, !bluetooth.asked { bluetooth.stop("Reconnect Bluetooth Automatically switched off") }
+            if newValue, !midi.isConnected, defaults.bool(forKey: "pedalOnBluetooth") {
+                lookOverBluetooth(asked: false, why: "Reconnect Bluetooth Automatically switched on")
+            }
+            onChange()
+        }
+    }
+
+    /// The menu's line about reconnecting over Bluetooth, or nil.
+    var bluetoothLine: String? {
+        switch bluetooth.phase {
+        case .idle:
+            guard !midi.isConnected else { return nil }
+            if let why = bluetoothHeldOff { return "Not reconnecting Bluetooth by itself: \(why). Choose Reconnect." }
+            if let at = bluetooth.gaveUpAt {
+                return "Stopped looking for the pedal over Bluetooth at "
+                    + DateFormatter.localizedString(from: at, dateStyle: .none, timeStyle: .short) + ". Choose Reconnect."
+            }
+            return nil
+        case .starting:
+            switch bluetooth.radioState {
+            case .off: return "Bluetooth is off: turn it on and the pedal reconnects"
+            case .notAllowed: return "Bluetooth isn't allowed: System Settings → Privacy & Security → Bluetooth"
+            case .starting, .on, .unsupported: return "Starting Bluetooth…"
+            }
+        case .looking:
+            let until = bluetooth.until.map { " until " + DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .short) } ?? ""
+            let others = bluetooth.seen.isEmpty ? "" : " (also around: \(bluetooth.seen.joined(separator: ", ")))"
+            return "Looking for the pedal over Bluetooth\(until)…\(others)"
+        case .connecting(let d):
+            return "Connecting to \(d.label) over Bluetooth…"
+        case .handingOver(let d):
+            return "Adding \(d.label) to macOS MIDI…"
+        }
     }
 
     /// Menu: resend everything (and trust that the MorningstarAblesetBridge bank is showing).

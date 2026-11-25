@@ -358,7 +358,147 @@ enum SelfTest {
         while duringAlert < 0 { spin(.default, 0.05) }
         check(duringAlert == 5, "AbleSet and pedal messages keep flowing while an alert from a completion is open")
 
+        // v2.8: reconnecting over Bluetooth, driven by a pretend radio.
+        let mc4 = RadioDevice(id: UUID(), name: "MC4 PRO")
+        let widi = RadioDevice(id: UUID(), name: "WIDI Master")
+        var clock = Date()
+        var problemsNow: [String] = []
+        var online = false
+        func reconnector(_ radio: FakeRadio) -> BluetoothReconnect {
+            let b = BluetoothReconnect(makeRadio: { radio })
+            b.usesTimer = false
+            b.now = { clock }
+            b.log = { _ in }
+            b.isPedal = { Bridge.isPedalName($0.name, match: "MC4", exactName: nil) }
+            b.isOnline = { _ in online }
+            b.raise = { e in if !problemsNow.contains(e.code.rawValue) { problemsNow.append(e.code.rawValue) } }
+            b.clear = { c in problemsNow.removeAll { $0 == c.rawValue } }
+            return b
+        }
+        func later(_ seconds: TimeInterval, _ b: BluetoothReconnect) { clock += seconds; b.tick() }
+        func toHandOver(_ r: FakeRadio, _ b: BluetoothReconnect) {
+            b.look(for: 600, asked: false); r.onEvent(.state(.on)); r.onEvent(.found(mc4)); r.onEvent(.connected(mc4.id))
+        }
+
+        let r1 = FakeRadio(), b1 = reconnector(r1)
+        b1.look(for: 600, asked: false)
+        r1.onEvent(.state(.on)); r1.onEvent(.found(widi)); r1.onEvent(.found(mc4)); r1.onEvent(.connected(mc4.id))
+        check(r1.calls == ["start", "scan", "stop scan", "connect", "activate"] && b1.phase == .handingOver(mc4),
+              "Bluetooth: finds the pedal by name, connects, and hands it to CoreMIDI")
+        b1.pedalArrived()
+        check(r1.calls.last == "disconnect" && b1.phase == .idle && b1.seen == ["WIDI Master"],
+              "Bluetooth: once CoreMIDI has the pedal, the app lets go of its own link")
+        r1.onEvent(.state(.off))
+        check(problemsNow.isEmpty, "Bluetooth switched off while nothing is being looked for isn't a problem")
+
+        let r2 = FakeRadio(), b2 = reconnector(r2)
+        r2.alreadyConnected = [widi, mc4]
+        b2.look(for: 600, asked: false); r2.onEvent(.state(.on))
+        check(r2.calls == ["start", "connect"], "Bluetooth: a pedal already linked to the Mac is connected without a scan")
+        b2.stop("test")
+
+        let r3 = FakeRadio(), b3 = reconnector(r3)
+        b3.look(for: Bridge.askedLookSeconds, asked: true); r3.onEvent(.state(.on))
+        later(60, b3)
+        let stillLooking = b3.phase == .looking && problemsNow.isEmpty
+        later(61, b3)
+        check(stillLooking && b3.phase == .idle && problemsNow == ["MAB-308"] && r3.calls.last == "stop scan",
+              "Bluetooth: Reconnect looks for 2 minutes, then says the pedal didn't turn up (MAB-308)")
+        problemsNow = []
+
+        let r4 = FakeRadio(), b4 = reconnector(r4)
+        b4.look(for: Bridge.autoLookSeconds, asked: false); r4.onEvent(.state(.on))
+        later(601, b4)
+        let endedAt = b4.gaveUpAt
+        b4.look(for: 600, asked: false)
+        check(b4.phase == .starting && problemsNow.isEmpty && endedAt != nil && b4.gaveUpAt == nil,
+              "Bluetooth: an automatic look ends quietly after 10 minutes (the menu says when)")
+        b4.stop("test")
+
+        let r5 = FakeRadio(), b5 = reconnector(r5)
+        b5.look(for: 600, asked: false); r5.onEvent(.state(.off))
+        check(b5.phase == .starting && problemsNow == ["MAB-306"], "Bluetooth off: says so (MAB-306) and waits for it")
+        r5.onEvent(.state(.on))
+        check(b5.phase == .looking && problemsNow.isEmpty, "Bluetooth switched on: the problem clears and the look starts")
+        b5.stop("test")
+
+        let r6 = FakeRadio(), b6 = reconnector(r6)
+        b6.look(for: 120, asked: true); r6.onEvent(.state(.notAllowed))
+        check(problemsNow == ["MAB-307"] && b6.phase == .starting, "Bluetooth not allowed: says so (MAB-307)")
+        b6.stop("test"); problemsNow = []
+
+        let r7 = FakeRadio(), b7 = reconnector(r7)
+        r7.activateStatus = -50
+        toHandOver(r7, b7)
+        check(b7.phase == .idle && problemsNow == ["MAB-309"] && r7.calls.last == "disconnect",
+              "Bluetooth: CoreMIDI refusing the pedal is reported (MAB-309) and the link let go")
+        problemsNow = []
+
+        let r8 = FakeRadio(), b8 = reconnector(r8)
+        toHandOver(r8, b8)
+        later(11, b8)
+        check(b8.phase == .idle && problemsNow == ["MAB-309"] && r8.calls.last == "disconnect",
+              "Bluetooth: CoreMIDI not listing the pedal within 10 s is reported (MAB-309)")
+        problemsNow = []
+        let r8b = FakeRadio(), b8b = reconnector(r8b)
+        toHandOver(r8b, b8b)
+        online = true; later(1, b8b); online = false
+        check(b8b.phase == .idle && problemsNow.isEmpty && r8b.calls.last == "disconnect",
+              "Bluetooth: the pedal turning up in CoreMIDI completes the hand-over")
+
+        let r9 = FakeRadio(), b9 = reconnector(r9)
+        b9.look(for: 600, asked: false); r9.onEvent(.state(.on)); r9.onEvent(.found(mc4))
+        later(16, b9)
+        check(b9.phase == .looking && Array(r9.calls.suffix(2)) == ["disconnect", "scan"],
+              "Bluetooth: a connection that hangs is cancelled and the look goes on")
+        r9.onEvent(.connected(widi.id))
+        check(b9.phase == .looking && r9.calls.last == "disconnect", "Bluetooth: a late connection nobody waits for is let go")
+        b9.pedalArrived()
+        check(b9.phase == .idle && r9.calls.last == "stop scan", "Bluetooth: the pedal coming back another way (USB, macOS's window) ends the look")
+
+        let r10 = FakeRadio(), b10 = reconnector(r10)
+        b10.look(for: 600, asked: false); r10.onEvent(.state(.on)); r10.onEvent(.found(mc4)); r10.onEvent(.disconnected(mc4.id))
+        check(b10.phase == .looking, "Bluetooth: losing the pedal mid-connection goes back to looking")
+        b10.stop("test")
+
+        let r11 = FakeRadio(), b11 = reconnector(r11)
+        for _ in 0..<3 { toHandOver(r11, b11); b11.pedalArrived(); clock += 60 }
+        let refused = !b11.look(for: 600, asked: false)
+        let allowedByHand = b11.look(for: 120, asked: true)
+        b11.stop("test")
+        clock += 600
+        check(refused && allowedByHand && b11.look(for: 600, asked: false),
+              "Bluetooth: after 3 reconnects in 10 minutes only Reconnect looks, until 10 minutes have passed")
+        b11.stop("test")
+
+        check(Bridge.isPedalName("MC4 PRO", match: "MC4", exactName: nil) && !Bridge.isPedalName("WIDI Master", match: "MC4", exactName: nil),
+              "Bluetooth: the pedal is told apart from other Bluetooth MIDI devices by name")
+        check(Bridge.isPedalName("Morningstar 12", match: "MC4", exactName: "Morningstar 12 Bluetooth")
+              && !Bridge.isPedalName("", match: "MC4", exactName: "MC4 PRO Bluetooth") && !Bridge.isPedalName("MC4 PRO", match: "", exactName: nil),
+              "Bluetooth: a picked port's name also identifies the pedal; empty names match nothing")
+        check(Bridge.bluetoothHoldOff(asked: true, exactName: "Morningstar MC4 Pro Port 4", automatic: true, manager: nil) != nil
+              && Bridge.bluetoothHoldOff(asked: true, exactName: nil, automatic: false, manager: "Audio MIDI Setup") == nil
+              && Bridge.bluetoothHoldOff(asked: false, exactName: "MC4 PRO 12 Bluetooth", automatic: true, manager: nil) == nil,
+              "Bluetooth: Reconnect always looks, unless a USB port was picked by hand")
+        check(Bridge.bluetoothHoldOff(asked: false, exactName: nil, automatic: false, manager: nil) != nil
+              && Bridge.bluetoothHoldOff(asked: false, exactName: nil, automatic: true, manager: "Audio MIDI Setup") != nil,
+              "Bluetooth: automatic looks follow the menu switch and wait while a Bluetooth MIDI window is open")
+
         print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
         return failures == 0 ? 0 : 1
     }
+}
+
+/// A pretend Bluetooth radio for --selftest: records what the reconnect logic asks of it.
+final class FakeRadio: BluetoothRadio {
+    var onEvent: (RadioEvent) -> Void = { _ in }
+    var calls: [String] = []
+    var alreadyConnected: [RadioDevice] = []
+    var activateStatus: OSStatus = noErr
+    func start() { calls.append("start") }
+    func connectedMIDIDevices() -> [RadioDevice] { alreadyConnected }
+    func scan(_ on: Bool) { calls.append(on ? "scan" : "stop scan") }
+    func connect(_ id: UUID) { calls.append("connect") }
+    func disconnect(_ id: UUID) { calls.append("disconnect") }
+    func activateMIDI() -> OSStatus { calls.append("activate"); return activateStatus }
 }

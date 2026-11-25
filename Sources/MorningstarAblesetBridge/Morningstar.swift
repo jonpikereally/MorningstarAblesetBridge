@@ -142,6 +142,8 @@ final class PedalMIDI {
     static var debug = false
 
     var isConnected: Bool { destination != 0 }
+    /// The port in use is a Bluetooth one (v2.8), so losing it means the pedal dropped off Bluetooth.
+    private(set) var destinationIsBluetooth = false
     /// When set, use the MIDI port with exactly this name instead of the first one containing `match`.
     var exactName: String?
     /// Automatic mode only: the port a search found answering (over USB the
@@ -297,12 +299,30 @@ final class PedalMIDI {
         return (0..<n).map { sources ? MIDIGetSource($0) : MIDIGetDestination($0) }
     }
 
+    /// Whether a port belongs to macOS's Bluetooth MIDI driver: its name says
+    /// Bluetooth ("MC4 PRO … Bluetooth"), or its device's driver does.
+    static func isBluetooth(_ ep: MIDIEndpointRef) -> Bool {
+        if name(ep).lowercased().contains("bluetooth") { return true }
+        var entity = MIDIEntityRef(), device = MIDIDeviceRef()
+        guard MIDIEndpointGetEntity(ep, &entity) == noErr, entity != 0,
+              MIDIEntityGetDevice(entity, &device) == noErr, device != 0 else { return false }
+        var owner: Unmanaged<CFString>?
+        guard MIDIObjectGetStringProperty(device, kMIDIPropertyDriverOwner, &owner) == noErr,
+              let o = owner?.takeRetainedValue() as String? else { return false }
+        return o.lowercased().contains("bluetooth")
+    }
+
+    /// Names of the Bluetooth MIDI ports the Mac can send to now.
+    static func bluetoothPortNames() -> [String] {
+        endpoints(sources: false).filter(isBluetooth).map(name)
+    }
+
     /// Menu "Reconnect to Pedal": drop the current input and output and
     /// connect again from scratch, as if the pedal had just appeared.
     func reconnect() {
         if source != 0 { MIDIPortDisconnectSource(inPort, source) }
         source = 0; sourceName = nil; sourceConnectStatus = nil
-        destination = 0; destinationName = nil
+        destination = 0; destinationName = nil; destinationIsBluetooth = false
         outbox.removeAll()
         sysex = []
         rescan()
@@ -346,6 +366,7 @@ final class PedalMIDI {
         let changed = dest != destination
         destination = dest
         destinationName = dest == 0 ? nil : Self.name(dest)
+        if changed { destinationIsBluetooth = dest != 0 && Self.isBluetooth(dest) }
         if dest == 0 { outbox.removeAll() }
         if changed { onConnectionChange() }
     }

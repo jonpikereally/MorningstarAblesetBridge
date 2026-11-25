@@ -30,6 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         bridge.onChange = { [weak self] in self?.refreshTitle() }
+        // Automatic Bluetooth reconnecting holds off while one of these is open:
+        // someone there may be disconnecting the pedal on purpose.
+        bridge.bluetoothManager = { [weak self] in
+            if self?.bluetoothWindow?.window?.isVisible == true { return "the Bluetooth MIDI window" }
+            if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == "com.apple.audio.AudioMIDISetup" }) {
+                return "Audio MIDI Setup"
+            }
+            return nil
+        }
         bridge.start()
         Updater.shared.onChange = { [weak self] in self?.refreshTitle() }
         Updater.shared.startAutomaticChecks()
@@ -80,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             info("Pedal: no MIDI device named “\(bridge.midi.match)”")
         }
+        if let line = bridge.bluetoothLine { info("    " + line) }
         menu.addItem(portMenu())
         let osc = NSMenuItem(title: "AbleSet Ports…", action: #selector(editAbleSetPorts), keyEquivalent: "")
         osc.target = self
@@ -129,9 +139,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         bt.target = self
         bt.toolTip = "macOS's own Bluetooth MIDI window (the one in Audio MIDI Setup): click Connect next to the MC4 PRO"
         menu.addItem(bt)
+        let autoBT = NSMenuItem(title: "Reconnect Bluetooth Automatically", action: #selector(toggleAutoBluetooth), keyEquivalent: "")
+        autoBT.target = self
+        autoBT.state = bridge.autoReconnectBluetooth ? .on : .off
+        autoBT.toolTip = "When the pedal drops off Bluetooth (switched off and on again, say), or isn't there when "
+            + "MorningstarAblesetBridge starts after being on Bluetooth, look for it for 10 minutes and reconnect it. "
+            + "Bluetooth reaches one device at a time: switch this off when another computer or an iPad should get the pedal."
+        menu.addItem(autoBT)
         let reconnect = NSMenuItem(title: "Reconnect", action: #selector(reconnectPedal), keyEquivalent: "")
         reconnect.target = self
-        reconnect.toolTip = "Reopen the pedal's MIDI connection and AbleSet's, then rewrite the pedal's names"
+        reconnect.toolTip = "Reopen the pedal's MIDI connection and AbleSet's, then rewrite the pedal's names. "
+            + "If the pedal isn't connected, look for it over Bluetooth for 2 minutes and connect it."
         menu.addItem(reconnect)
         let resend = NSMenuItem(title: "Resend Everything to Pedal", action: #selector(resend), keyEquivalent: "r")
         resend.target = self
@@ -163,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func resend() { bridge.resendAll() }
     @objc func reconnectPedal() { bridge.reconnect() }
+    @objc func toggleAutoBluetooth() { bridge.autoReconnectBluetooth.toggle() }
 
     /// macOS's Bluetooth MIDI window, the same one Audio MIDI Setup opens from
     /// MIDI Studio → Bluetooth. Once the pedal connects, CoreMIDI announces the
@@ -239,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if hits.isEmpty {
             alert.messageText = "No Morningstar pedal answered"
             alert.informativeText = "None of this Mac's MIDI ports replied. Check the MC4 is connected to this Mac "
-                + "(Bluetooth: menu → Connect Bluetooth MIDI Device…; Bluetooth reaches one computer at a time), then try again."
+                + "(Bluetooth: menu → Reconnect, or Connect Bluetooth MIDI Device…; Bluetooth reaches one computer at a time), then try again."
         } else {
             alert.messageText = "Using “\(bridge.pedalPort ?? hits[0])”"
             alert.informativeText = hits.count > 1
@@ -332,7 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var text = "You have v\(AppVersion.version)."
         if let notes = m.notes, !notes.isEmpty { text += "\n\nWhat's new:\n\(notes)" }
         text += "\n\nMorningstarAblesetBridge will quit, update itself and reopen. Your settings are kept, "
-            + "and the only permission it may ask for again is Bluetooth (used by Connect Bluetooth MIDI Device…)."
+            + "and the only permission it may ask for again is Bluetooth (used to connect the pedal over Bluetooth)."
         if Bundle.main.bundleURL.path.contains("/AppTranslocation/") {
             text += "\n\nThis copy was opened straight from a download, so the update will be installed in "
                 + "~/Applications. Delete the downloaded copy afterwards."

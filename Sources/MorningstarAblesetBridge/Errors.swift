@@ -29,6 +29,10 @@ enum ErrorCode: String, CaseIterable {
     case sendFailed = "MAB-303"
     case pedalSilent = "MAB-304"
     case pedalRejected = "MAB-305"
+    case bluetoothOff = "MAB-306"
+    case bluetoothNotAllowed = "MAB-307"
+    case bluetoothNotFound = "MAB-308"
+    case bluetoothHandOver = "MAB-309"
     // 6xx — install.sh
     // 9xx — anything else
     case unexpected = "MAB-999"
@@ -57,6 +61,10 @@ enum ErrorCode: String, CaseIterable {
         case .sendFailed: return "Sending a message to the MC4 PRO failed."
         case .pedalSilent: return "The MC4 PRO isn't answering MorningstarAblesetBridge's questions."
         case .pedalRejected: return "The MC4 PRO rejected a message from MorningstarAblesetBridge."
+        case .bluetoothOff: return "Bluetooth is off (or this Mac has none), so the MC4 PRO can't reconnect over Bluetooth."
+        case .bluetoothNotAllowed: return "MorningstarAblesetBridge isn't allowed to use Bluetooth, so it can't reconnect the MC4 PRO."
+        case .bluetoothNotFound: return "The MC4 PRO didn't turn up over Bluetooth."
+        case .bluetoothHandOver: return "The MC4 PRO connected over Bluetooth, but macOS didn't add it as a MIDI device."
         case .unexpected: return "Something unexpected went wrong."
         }
     }
@@ -74,10 +82,14 @@ enum ErrorCode: String, CaseIterable {
         case .ableSetSilent: return "Open AbleSet and make sure it's running on this Mac (OSC port 39051). MorningstarAblesetBridge keeps retrying every few seconds."
         case .badHost: return "Reset it: defaults delete com.jonpike.morningstarablesetbridge ableSetHost, then reopen MorningstarAblesetBridge."
         case .midiFailed: return "Quit and reopen MorningstarAblesetBridge. If it keeps happening, restart the Mac."
-        case .pedalNotFound: return "Connect the MC4 over Bluetooth (menu → Connect Bluetooth MIDI Device…) or USB. Bluetooth only reaches one host, so disconnect it from the iPad first."
+        case .pedalNotFound: return "Connect the MC4 over USB, or over Bluetooth with menu → Reconnect (or Connect Bluetooth MIDI Device…). Bluetooth only reaches one host, so disconnect it from the iPad first."
         case .sendFailed: return "Reconnect the MC4 (Bluetooth or USB) and choose “Resend Everything to Pedal”. If it keeps happening, power-cycle the pedal."
         case .pedalSilent: return "Song names keep updating anyway; only noticing bank changes needs the pedal's answers. Check Pedal MIDI Port → Find Pedal Automatically. If it keeps happening, send the log (menu → Show Log) to whoever helps you — it records what the pedal sent when its answers stopped."
         case .pedalRejected: return "Note the details (Copy Error Details) — the pedal's firmware may expect a different message layout."
+        case .bluetoothOff: return "Turn Bluetooth on (Control Center → Bluetooth). While MorningstarAblesetBridge is still looking, the pedal then reconnects by itself; otherwise choose Reconnect."
+        case .bluetoothNotAllowed: return "Allow MorningstarAblesetBridge in System Settings → Privacy & Security → Bluetooth (if it's already on there, switch it off and on again), then choose Reconnect."
+        case .bluetoothNotFound: return "Check the pedal is switched on and isn't connected to another computer or an iPad (Bluetooth reaches one at a time), then choose Reconnect. Or connect it by hand: menu → Connect Bluetooth MIDI Device…"
+        case .bluetoothHandOver: return "Connect it by hand: menu → Connect Bluetooth MIDI Device…, then Connect next to the MC4 PRO. If that works and Reconnect doesn't, copy the details and report it."
         case .unexpected: return "Quit and reopen MorningstarAblesetBridge. If it keeps happening, copy the details and ask for help."
         }
     }

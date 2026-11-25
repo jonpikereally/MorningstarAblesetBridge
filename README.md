@@ -74,7 +74,14 @@ To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`
 
 **Show on Pedal** (menu) switches the BPM, key and **current section** ("Red 125 (Am) - Chorus", shown only in section mode, on by default) on or off, and **Song Title with the Section**: switch it off and section mode shows the section alone ("Chorus 125 (Am)") (shown like `Red 125 (Am)`), separately for the current song (on the screen) and for the previous and next songs (C and D). AbleSet has no key field, so the key comes from, in order: `Key: Am` in the song's description (locator text like `Red {Key: Am}`), a description that's only the key (`Red {Am}`), a tag that looks like a key (`#Am`, `#F#`), or a key in brackets at the end of the name (`Red (Am)`). When none is found, the menu shows what AbleSet sent for the song. Titles longer than 16 characters are split over two lines on the screen (song on top, BPM / key / section below) using the pedal's `\n` line break for bank names; switch it off under **Split Long Titles over Two Lines**. Preset names (C and D) have no documented line break; the pedal shrinks their text to fit.
 
-In the menu, **Connect Bluetooth MIDI Device…** opens macOS's Bluetooth MIDI window (the same one as Audio MIDI Setup → MIDI Studio → Bluetooth): click **Connect** next to the MC4 PRO and the bridge picks it up. macOS asks once for Bluetooth permission. **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. In automatic mode with several matching ports (USB shows Port 1–4), the bridge asks just those ports which one answers. If none does, it asks again after 5, 15 and 45 s, and again on **Reconnect**. **AbleSet Ports…** sets the OSC ports.
+In the menu, **Connect Bluetooth MIDI Device…** opens macOS's Bluetooth MIDI window (the same one as Audio MIDI Setup → MIDI Studio → Bluetooth): click **Connect** next to the MC4 PRO and the bridge picks it up. macOS asks once for Bluetooth permission. **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. When the pedal isn't connected at all, Reconnect also looks for it over Bluetooth for 2 minutes and connects it, without that window. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. In automatic mode with several matching ports (USB shows Port 1–4), the bridge asks just those ports which one answers. If none does, it asks again after 5, 15 and 45 s, and again on **Reconnect**. **AbleSet Ports…** sets the OSC ports.
+
+**Reconnect Bluetooth Automatically** (menu, on by default): macOS doesn't reconnect a Bluetooth MIDI device that was switched off and on, so the bridge does. When the pedal drops off Bluetooth, or isn't there when the bridge starts after being on Bluetooth last time, the bridge looks for it for 10 minutes and reconnects it as soon as it's back on. The menu shows what it's doing. It waits while the Bluetooth MIDI window or Audio MIDI Setup is open, so you can still disconnect the pedal on purpose. It also stops after 3 reconnects in 10 minutes. Bluetooth reaches one device at a time, so switch it off when another computer or an iPad should get the pedal. This uses Apple's documented steps from CoreMIDI's `MIDIBluetoothConnection.h`:
+
+1. Find the pedal's Bluetooth MIDI advertisement with CoreBluetooth.
+2. Connect to it.
+3. Call `MIDIBluetoothDriverActivateAllConnections()`, so CoreMIDI adds the pedal as a MIDI device.
+4. Once CoreMIDI lists it, let go of the bridge's own connection; CoreMIDI keeps its own.
 
 The bridge keeps macOS from napping it (App Nap) so its messages to the pedal stay on time while another app is in front; the Mac can still sleep when idle.
 
@@ -87,6 +94,8 @@ Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 | `listenPort` | 39161 | UDP port for AbleSet's updates |
 | `ableSetPort` | 39051 | AbleSet's OSC port |
 | `ableSetHost` | 127.0.0.1 | AbleSet's computer |
+| `autoReconnectBluetooth` | true | Reconnect Bluetooth Automatically (the menu switch) |
+| `pedalOnBluetooth`, `bluetoothPedalID` | (set by the app) | Whether the pedal was last on Bluetooth, and its Bluetooth ID on this Mac |
 
 A port setting that isn't a port number (0 or above 65535) is ignored and the default is used.
 

@@ -23,7 +23,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>MorningstarAblesetBridge uses Bluetooth to connect your Morningstar pedal as a Bluetooth MIDI device.</string>
+	<string>MorningstarAblesetBridge uses Bluetooth to connect your Morningstar pedal as a Bluetooth MIDI device, and to reconnect it after it's switched off and on.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>
