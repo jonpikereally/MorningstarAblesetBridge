@@ -222,7 +222,9 @@ enum SelfTest {
         sec.apply(OSCMessage(address: "/setlist/activeSectionIndex", args: [.float(1)]))
         sec.apply(OSCMessage(address: "/setlist/activeSectionName", args: [.string("Verse")]))
         check(PedalView.previousSectionLabel(sec) == "Intro" && PedalView.nextSectionLabel(sec) == "Chorus", "previous / next section from the song's section list")
-        check(PedalView.bankTitle(sec, bpm: false, key: false, section: true) == "Red - Verse", "current section after the song on the screen")
+        check(PedalView.bankTitle(sec, bpm: false, key: false, section: true) == "Red", "song mode: no section on the screen")
+        sec.sectionMode = true
+        check(PedalView.bankTitle(sec, bpm: false, key: false, section: true) == "Red - Verse", "section mode: current section after the song on the screen")
         check(PedalView.bankTitle(sec, bpm: false, key: false, section: false) == "Red", "section on the screen can be switched off")
         sec.apply(OSCMessage(address: "/setlist/activeSectionIndex", args: [.float(2)]))
         check(PedalView.nextSectionLabel(sec) == "-", "last section: no next section")

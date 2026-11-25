@@ -1,1 +1,1 @@
-Section names: in section mode (hold D), C and D show the previous and next section of the current song, and the screen shows the current section after the song ("Red 125 (Am) - Chorus"). Switch it off under Show on Pedal → Current Section.
+MAB now knows when you're in section mode: holding D also sends CC 112 to the app. The current section appears on the screen only in section mode; in song mode it shows just the song. Needs the new AbleSet Bridge bank on the pedal. Don't map CC 112 in AbleSet.

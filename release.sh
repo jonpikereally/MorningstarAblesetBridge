@@ -91,7 +91,7 @@ SET UP
    into a bank slot with the Morningstar editor.
 2. Connect the MC4 PRO to this Mac over Bluetooth MIDI or USB.
 3. In AbleSet, map notes 12 (play), 13 (stop), 14 (loop), 15 (previous song)
-   and 16 (next song) on channel 1. Don't map CC 111.
+   and 16 (next song), plus 20/21 (previous/next section), on channel 1. Don't map CC 111 or CC 112.
 4. In Ableton Live's MIDI settings, turn on Remote for the pedal's input.
 
 The pedal controls AbleSet by itself; the app only changes what it shows.

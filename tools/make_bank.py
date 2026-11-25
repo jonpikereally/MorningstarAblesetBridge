@@ -21,7 +21,8 @@ so every switch works the same with or without MAB running.
   A PLAY        B STOP             A LOOP        B STOP
 
   PREV / NEXT SECTION -> notes 20 / 21 (map them in AbleSet)
-  Hold D: page 1 -> 3, 2 -> 4, and back again. PLAY on page 3 goes to 4 and
+  Hold D: page 1 -> 3, 2 -> 4, and back again, also sending CC 112 = 127
+  (into section mode) or 0 (back to songs) so MAB knows the mode (v2.2). PLAY on page 3 goes to 4 and
   STOP flips 3 <-> 4, so play/stop/loop behave the same in both modes.
 
 All notes are on channel 1: Note On on press, Note Off on release. The page
@@ -49,6 +50,7 @@ GO_PAGE = {1: 3, 2: 4, 3: 5, 4: 6}    # Toggle Page data1 for "go to page N"
 NOTE_PLAY, NOTE_STOP, NOTE_LOOP, NOTE_PREV, NOTE_NEXT, NOTE_STOP_HELD = 12, 13, 14, 15, 16, 19
 NOTE_PREV_SECTION, NOTE_NEXT_SECTION = 20, 21
 BANK_CC = 111
+MODE_CC = 112        # hold D: 127 = section mode, 0 = song mode (tells MAB; don't map in AbleSet)
 # C/D long name: a single space, so pressing PREV/NEXT shows nothing in the
 # middle of the screen (Jon, 2026-11-24). An empty name might fall back to the short name.
 BLANK_LONG = " "
@@ -102,8 +104,10 @@ def tap_on_release(n):
     return [msg(T_NOTE_ON, [n, 127], RELEASE), msg(T_NOTE_OFF, [n, 127], RELEASE)]
 
 
-def hold_flip(page):
-    return msg(T_TOGGLE_PAGE, [GO_PAGE[page]], LONG_PRESS)
+def hold_flip(page, to_sections):
+    """Hold D: change page and tell MAB which mode the pedal is now in."""
+    return [msg(T_CC, [MODE_CC, 127 if to_sections else 0], LONG_PRESS),
+            msg(T_TOGGLE_PAGE, [GO_PAGE[page]], LONG_PRESS)]
 
 
 presets = []
@@ -124,12 +128,12 @@ for page in (1, 2, 3, 4):
     if sections:
         presets.append(preset(o + 2, "PREV SECTION", BLANK_LONG, WHITE, 124, note(NOTE_PREV_SECTION), name=WHITE))
         presets.append(preset(o + 3, "NEXT SECTION", BLANK_LONG, WHITE, 27,
-                              tap_on_release(NOTE_NEXT_SECTION) + [hold_flip(swap)], name=WHITE))
+                              tap_on_release(NOTE_NEXT_SECTION) + hold_flip(swap, False), name=WHITE))
     else:
         presets.append(preset(o + 2, "PREV SONG", BLANK_LONG, WHITE, 124, note(NOTE_PREV), name=WHITE,
                               shift=("MOVE UP", 60)))      # shift labels left over from the MC6 bank
         presets.append(preset(o + 3, "NEXT SONG", BLANK_LONG, WHITE, 27,
-                              tap_on_release(NOTE_NEXT) + [hold_flip(swap)], name=WHITE,
+                              tap_on_release(NOTE_NEXT) + hold_flip(swap, True), name=WHITE,
                               shift=("MOVE DOWN", 13)))
 
 bank = {

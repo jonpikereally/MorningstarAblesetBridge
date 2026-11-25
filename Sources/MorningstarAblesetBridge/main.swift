@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             info("    \(s.songName.isEmpty ? "No song" : s.songName)\(position)\(s.tempo.map { String(format: " · %.0f BPM", $0) } ?? "")")
             info("    \(s.playing ? "Playing" : "Stopped") · loop \(s.loop ? "on" : "off")\(s.key.map { " · key \($0)" } ?? "")")
             if let n = s.nextSong { info("    Next: \(n)") }
+            info("    Pedal mode: \(s.sectionMode ? "sections (hold D for songs)" : "songs (hold D for sections)")")
             if s.key == nil, !s.songName.isEmpty {
                 // Shows what AbleSet sent, so a missing key can be traced.
                 let d = s.songDescription.isEmpty ? "none" : "“\(s.songDescription.prefix(40))”"
@@ -102,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         header("Current song (screen)")
         toggle("BPM", PedalView.showBPM, 1)
         toggle("Key", PedalView.showKey, 2, keyTip)
-        toggle("Current Section", PedalView.showSection, 5, "The section that's playing, after the song: “Red 125 (Am) - Chorus”.")
+        toggle("Current Section (in section mode)", PedalView.showSection, 5, "While you're in section mode (hold D), the section that's playing after the song: “Red 125 (Am) - Chorus”.")
         sub.addItem(.separator())
         header("Previous / next songs (C and D)")
         toggle("BPM", PedalView.showNeighbourBPM, 3)

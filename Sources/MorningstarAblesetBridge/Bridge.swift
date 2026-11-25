@@ -21,6 +21,9 @@ struct SetState: Equatable {
     // Sections of the current song (v2.1): names in order, the current one's
     // index, and its name. Previous / next come from the list, like songs.
     var sections: [String] = []
+    /// The pedal is on the section pages (3/4). Not from AbleSet: the bank's
+    /// hold-D message CC 112 (127 / 0) says so, and entering the bank resets it.
+    var sectionMode = false
     var sectionIndex: Int?
     var sectionName = ""
     var songDescriptionFor = ""
@@ -153,7 +156,7 @@ enum PedalView {
     static var showKey: Bool { get { flag("showKey", true) } set { UserDefaults.standard.set(newValue, forKey: "showKey") } }
     static var showNeighbourBPM: Bool { get { flag("showNeighbourBPM", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourBPM") } }
     static var showNeighbourKey: Bool { get { flag("showNeighbourKey", false) } set { UserDefaults.standard.set(newValue, forKey: "showNeighbourKey") } }
-    /// Current section after the song on the screen: "Red 125 (Am) · Chorus".
+    /// In section mode, the current section after the song on the screen: "Red 125 (Am) - Chorus".
     static var showSection: Bool { get { flag("showSection", true) } set { UserDefaults.standard.set(newValue, forKey: "showSection") } }
 
     static func bpmText(_ t: Double) -> String {
@@ -171,7 +174,7 @@ enum PedalView {
     static func bankTitle(_ s: SetState, bpm showBPM: Bool = PedalView.showBPM, key showKey: Bool = PedalView.showKey,
                           section showSection: Bool = PedalView.showSection) -> String {
         let song = label(s.songName.isEmpty ? "AbleSet" : s.songName, tempo: s.tempo, key: s.key, bpm: showBPM, key: showKey)
-        guard showSection, let section = s.currentSection, !section.isEmpty else { return song }
+        guard showSection, s.sectionMode, let section = s.currentSection, !section.isEmpty else { return song }
         return song + " - " + section      // ASCII only: the pedal's font has no "·"
     }
 
@@ -250,6 +253,7 @@ enum PedalView {
 /// Glues AbleSet (OSC) to the MC4 PRO (MIDI).
 final class Bridge {
     static let bankCC = 111                 // MorningstarAblesetBridge bank: 127 on entering it, 0 on leaving
+    static let modeCC = 112                 // hold D: 127 = section pages, 0 = song pages (v2.2)
     /// The bank's own (saved) names: the current one, and the one from before the rename.
     static let bankNames: Set<String> = ["AbleSet Bridge", "PedalLink AbleSet"]
 
@@ -338,11 +342,22 @@ final class Bridge {
     /// That's all the bridge listens for: the switches talk to AbleSet
     /// directly, and the bridge never sends AbleSet a transport command.
     private func pedalCC(_ channel: Int, _ number: Int, _ value: Int) {
-        if number == Self.bankCC { setInBank(value > 0) }
+        if number == Self.bankCC {
+            if value > 0, state.sectionMode { state.sectionMode = false; sent.removeAll() }   // entering opens page 1
+            setInBank(value > 0)
+        }
+        if number == Self.modeCC {
+            let sections = value > 0
+            guard sections != state.sectionMode else { return }
+            state.sectionMode = sections
+            push()
+            onChange()
+        }
     }
 
     private func setInBank(_ now: Bool) {
         if now { strangeReplies = 0 }
+        if now != inBank { state.sectionMode = false }     // the bank always opens on page 1 (songs)
         guard now != inBank else { return }
         ErrorReporter.note(now ? "bridge bank is showing: updating the pedal" : "bridge bank left: pedal updates paused")
         inBank = now
@@ -467,6 +482,7 @@ final class Bridge {
         let name = r.text
         if Self.bankNames.contains(name) {
             strangeReplies = 0
+            state.sectionMode = false          // the bank's saved name: just entered, so on page 1
             // Freshly entered (or re-entered between polls): the pedal shows the saved names again.
             if inBank != true { setInBank(true) } else if sent["bank"] != nil, !titlesSent.contains(name) { sent.removeAll(); push() }
         } else {
