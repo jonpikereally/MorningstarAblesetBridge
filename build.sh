@@ -21,5 +21,8 @@ mkdir -p MorningstarAblesetBridge.app/Contents/Resources
 cp Resources/AppIcon.icns MorningstarAblesetBridge.app/Contents/Resources/AppIcon.icns
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" MorningstarAblesetBridge.app/Contents/Info.plist
 swiftc -O -target arm64-apple-macos13 -module-cache-path "$CACHE" -o MorningstarAblesetBridge.app/Contents/MacOS/MorningstarAblesetBridge Sources/MorningstarAblesetBridge/*.swift
+# Dropbox tags every synced file (com.dropbox.attrs), and codesign refuses a
+# bundle carrying them ("resource fork, Finder information, or similar detritus").
+xattr -cr MorningstarAblesetBridge.app 2>/dev/null || true
 codesign --force --sign - MorningstarAblesetBridge.app
 echo "Built MorningstarAblesetBridge.app v$VERSION ($BUILT)"

@@ -17,8 +17,14 @@ if arguments.contains("--colourtest") { Probe.colourTest() }
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let bridge = Bridge()
     var item: NSStatusItem!
+    /// Keeps macOS from napping the app (v2.7): a napped app's timers, including
+    /// the one that paces messages to the pedal, can fire seconds late while
+    /// another app is in front. The Mac can still go to sleep when idle.
+    private var noNap: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        noNap = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                                                      reason: "Showing AbleSet's songs and play state on the MC4 PRO")
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self
@@ -224,20 +230,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         finding = true
         bridge.findPedal { [weak self] hits in
             self?.finding = false
-            let alert = NSAlert()
-            if hits.isEmpty {
-                alert.messageText = "No Morningstar pedal answered"
-                alert.informativeText = "None of this Mac's MIDI ports replied. Check the MC4 is connected to this Mac "
-                    + "(Bluetooth: menu → Connect Bluetooth MIDI Device…; Bluetooth reaches one computer at a time), then try again."
-            } else {
-                alert.messageText = "Using “\(self?.bridge.pedalPort ?? hits[0])”"
-                alert.informativeText = hits.count > 1
-                    ? "These ports answered: \(hits.joined(separator: ", ")). You can pick another one under Pedal MIDI Port."
-                    : "That MIDI port answered as a Morningstar pedal."
-            }
-            NSApp.activate(ignoringOtherApps: true)
-            alert.runModal()
+            outsideMainQueue { self?.showFindResult(hits) }
         }
+    }
+
+    private func showFindResult(_ hits: [String]) {
+        let alert = NSAlert()
+        if hits.isEmpty {
+            alert.messageText = "No Morningstar pedal answered"
+            alert.informativeText = "None of this Mac's MIDI ports replied. Check the MC4 is connected to this Mac "
+                + "(Bluetooth: menu → Connect Bluetooth MIDI Device…; Bluetooth reaches one computer at a time), then try again."
+        } else {
+            alert.messageText = "Using “\(bridge.pedalPort ?? hits[0])”"
+            alert.informativeText = hits.count > 1
+                ? "These ports answered: \(hits.joined(separator: ", ")). You can pick another one under Pedal MIDI Port."
+                : "That MIDI port answered as a Morningstar pedal."
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     @objc private func typePort() {
@@ -297,18 +307,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.checking = false
             self.refreshTitle()
-            switch result {
-            case .success(let m?):
-                self.offerInstall(m)
-            case .success(nil):
-                let alert = NSAlert()
-                alert.messageText = "MorningstarAblesetBridge is up to date"
-                alert.informativeText = "You're running v\(AppVersion.version), the newest version available."
-                NSApp.activate(ignoringOtherApps: true)
-                alert.runModal()
-            case .failure(let error):
-                self.showUpdateError(error)
-            }
+            outsideMainQueue { self.showCheckResult(result) }
+        }
+    }
+
+    private func showCheckResult(_ result: Result<UpdateManifest?, Error>) {
+        switch result {
+        case .success(let m?):
+            offerInstall(m)
+        case .success(nil):
+            let alert = NSAlert()
+            alert.messageText = "MorningstarAblesetBridge is up to date"
+            alert.informativeText = "You're running v\(AppVersion.version), the newest version available."
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        case .failure(let error):
+            showUpdateError(error)
         }
     }
 
@@ -331,7 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         checking = true
         Updater.shared.install(m) { [weak self] error in
             self?.checking = false
-            self?.showUpdateError(error)
+            outsideMainQueue { self?.showUpdateError(error) }
         }
     }
 
@@ -354,7 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let code = parts.first.flatMap { ErrorCode(rawValue: $0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? .updateSwapFailed
         let e = AppError(code, parts.count > 1 ? parts[1] : "")
         ErrorReporter.log(e)
-        DispatchQueue.main.async { ErrorReporter.present(e, title: "Couldn't install the update") }
+        outsideMainQueue { ErrorReporter.present(e, title: "Couldn't install the update") }
     }
 
     @objc private func editUpdateSource() {

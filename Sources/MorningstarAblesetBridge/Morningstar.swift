@@ -91,6 +91,26 @@ enum Morningstar {
     static func hex(_ b: [UInt8]) -> String { b.map { String(format: "%02X", $0) }.joined(separator: " ") }
 }
 
+extension Timer {
+    /// A repeating timer on the main run loop in the common modes, so it keeps
+    /// firing while the menu is open or an alert is showing. (v2.7: in the
+    /// default mode alone they stopped, and so did the messages to the pedal.)
+    static func common(_ interval: TimeInterval, _ tick: @escaping () -> Void) -> Timer {
+        let t = Timer(timeInterval: interval, repeats: true) { _ in tick() }
+        RunLoop.main.add(t, forMode: .common)
+        return t
+    }
+}
+
+/// Runs `work` from the main run loop instead of from a main-queue block. An
+/// alert shown inside a DispatchQueue.main block holds up every other
+/// main-queue block until it's closed, and every AbleSet update and pedal
+/// message arrives as one (v2.7).
+func outsideMainQueue(_ work: @escaping () -> Void) {
+    RunLoop.main.perform(inModes: [.common], block: work)
+    CFRunLoopWakeUp(CFRunLoopGetMain())
+}
+
 /// CoreMIDI link to the first MIDI endpoint whose name contains `match`
 /// ("MC4" by default: Bluetooth shows up as "MC4 PRO … Bluetooth").
 /// Messages are paced so a Bluetooth link isn't flooded.
@@ -113,7 +133,10 @@ final class PedalMIDI {
     private var destination = MIDIEndpointRef()
     private var source = MIDIEndpointRef()
     private var sysex: [UInt8] = []
-    private var outbox: [[UInt8]] = []
+    /// SysEx messages dropped unfinished because another message began (diagnostics).
+    private(set) var cutOffSysex = 0
+    typealias Queued = (key: String?, bytes: [UInt8])
+    private var outbox: [Queued] = []
     private var pump: Timer?
     static let spacing: TimeInterval = 0.03
     static var debug = false
@@ -131,7 +154,11 @@ final class PedalMIDI {
         return Self.portNames().filter { $0.lowercased().contains(wanted) }
     }
     private var searchHits: Set<String> = []
-    private var searchRefs: [(MIDIEndpointRef, UnsafeMutableRawPointer)] = []
+    /// Searches listen on their own input port (v2.7), so the pedal's normal
+    /// input stays connected and heard while one runs.
+    private var searchPort = MIDIPortRef()
+    private var searchSources: [MIDIEndpointRef] = []
+    private var waitingSearches: [(only: Set<String>?, completion: ([String]) -> Void)] = []
     private(set) var searching = false
 
     static func containsMorningstarReply(_ b: [UInt8]) -> Bool {
@@ -148,36 +175,38 @@ final class PedalMIDI {
         Array(Set(endpoints(sources: false).map(name))).sorted()
     }
 
-    /// Asks every MIDI port a Morningstar question ("controller info") and
-    /// reports the ports whose matching input answered, within `seconds`.
-    /// Morningstar SysEx carries Morningstar's manufacturer ID, so other
-    /// devices ignore it.
-    func search(seconds: Double = 2.5, completion: @escaping ([String]) -> Void) {
-        guard !searching else { return }
+    /// Asks MIDI ports a Morningstar question ("controller info") and reports
+    /// the ports whose matching input answered, within `seconds`. `only` limits
+    /// it to ports with those names (the automatic search asks just the pedal's
+    /// own ports); nil asks every port. Morningstar SysEx carries Morningstar's
+    /// manufacturer ID, so other devices ignore it. A search asked for while
+    /// another runs starts when that one ends (v2.7: it used to be dropped, and
+    /// "Find Pedal Automatically" stayed on "Searching…").
+    func search(only names: Set<String>? = nil, seconds: Double = 2.5, completion: @escaping ([String]) -> Void) {
+        guard !searching else { waitingSearches.append((names, completion)); return }
         searching = true
         searchHits = []
-        if source != 0 { MIDIPortDisconnectSource(inPort, source); source = 0 }
-        for src in Self.endpoints(sources: true) {
-            let ref = Unmanaged.passRetained(Self.name(src) as NSString).toOpaque()
-            if MIDIPortConnectSource(inPort, src, ref) == noErr { searchRefs.append((src, ref)) } else { Unmanaged<NSString>.fromOpaque(ref).release() }
+        let asked = { (ep: MIDIEndpointRef) in names.map { $0.contains(Self.name(ep)) } ?? true }
+        // The refCon is the source itself, not an object: a callback still
+        // running after the search ends can't touch freed memory (v2.7).
+        for src in Self.endpoints(sources: true) where asked(src) {
+            if MIDIPortConnectSource(searchPort, src, UnsafeMutableRawPointer(bitPattern: UInt(src))) == noErr { searchSources.append(src) }
         }
         let question = Morningstar.controllerInfo()
-        for dest in Self.endpoints(sources: false) { sendNow(question, to: dest) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds / 2) { [weak self] in
-            for dest in Self.endpoints(sources: false) { self?.sendNow(question, to: dest) }   // ask twice: Bluetooth can drop one
-        }
+        let ask = { [weak self] in for dest in Self.endpoints(sources: false) where asked(dest) { self?.sendNow(question, to: dest) } }
+        ask()
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds / 2) { ask() }   // ask twice: Bluetooth can drop one
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard let self else { return }
-            for (src, ref) in self.searchRefs {
-                MIDIPortDisconnectSource(self.inPort, src)
-                Unmanaged<NSString>.fromOpaque(ref).release()
-            }
-            self.searchRefs = []
+            for src in self.searchSources { MIDIPortDisconnectSource(self.searchPort, src) }
+            self.searchSources = []
             self.searching = false
             let destNames = Set(Self.portNames())
-            let hits = self.searchHits.filter { destNames.contains($0) }.sorted()
-            self.rescan()
-            completion(hits)
+            completion(self.searchHits.filter { destNames.contains($0) }.sorted())
+            if !self.waitingSearches.isEmpty {
+                let next = self.waitingSearches.removeFirst()
+                self.search(only: next.only, completion: next.completion)
+            }
         }
     }
 
@@ -190,28 +219,32 @@ final class PedalMIDI {
         guard status == noErr else { throw AppError(.midiFailed, "MIDIOutputPortCreate \(status)") }
         // The MIDI 1.0 "protocol" input API: the older packet-list API received
         // nothing from the MC4 over Bluetooth (2026-11-24), this one does.
-        status = MIDIInputPortCreateWithProtocol(client, "MorningstarAblesetBridge in" as CFString, ._1_0, &inPort) { [weak self] list, refCon in
-            // During a port search every source is connected with its name as refCon.
-            let searchSource = refCon.map { Unmanaged<NSString>.fromOpaque($0).takeUnretainedValue() as String }
+        status = MIDIInputPortCreateWithProtocol(client, "MorningstarAblesetBridge in" as CFString, ._1_0, &inPort) { [weak self] list, _ in
             var bytes: [UInt8] = []
             if PedalMIDI.debug {
                 for packet in list.unsafeSequence() {
-                    let n = Int(packet.pointee.wordCount)
-                    let w: [UInt32] = withUnsafeBytes(of: packet.pointee.words) { Array($0.bindMemory(to: UInt32.self).prefix(n)) }
+                    let w = Array(packet.words())
                     FileHandle.standardError.write(Data(("<< UMP " + w.map { String(format: "%08X", $0) }.joined(separator: " ") + "\n").utf8))
                 }
             }
             for packet in list.unsafeSequence() {
                 bytes += PedalMIDI.bytes(fromUMP: packet)
             }
-            if let name = searchSource {
-                if Self.containsMorningstarReply(bytes) { DispatchQueue.main.async { self?.searchHits.insert(name) } }
-                return
-            }
             DispatchQueue.main.async { self?.callbacks += 1 }
             if !bytes.isEmpty { DispatchQueue.main.async { self?.receive(bytes) } }
         }
         guard status == noErr else { throw AppError(.midiFailed, "MIDIInputPortCreate \(status)") }
+        // Port searches: each source is connected with its own endpoint ref as refCon.
+        status = MIDIInputPortCreateWithProtocol(client, "MorningstarAblesetBridge search" as CFString, ._1_0, &searchPort) { [weak self] list, refCon in
+            let src = MIDIEndpointRef(truncatingIfNeeded: UInt(bitPattern: refCon))
+            guard src != 0 else { return }
+            var bytes: [UInt8] = []
+            for packet in list.unsafeSequence() { bytes += PedalMIDI.bytes(fromUMP: packet) }
+            guard PedalMIDI.containsMorningstarReply(bytes) else { return }
+            let name = PedalMIDI.name(src)
+            DispatchQueue.main.async { self?.searchHits.insert(name) }
+        }
+        guard status == noErr else { throw AppError(.midiFailed, "MIDIInputPortCreate (search) \(status)") }
         rescan()
     }
 
@@ -224,8 +257,9 @@ final class PedalMIDI {
     /// Turns MIDI 1.0 Universal MIDI Packets back into plain MIDI bytes:
     /// type 1 (system), type 2 (channel voice) and type 3 (SysEx, 6 bytes per packet).
     static func bytes(fromUMP p: UnsafePointer<MIDIEventPacket>) -> [UInt8] {
-        let count = Int(p.pointee.wordCount)
-        let words: [UInt32] = withUnsafeBytes(of: p.pointee.words) { Array($0.bindMemory(to: UInt32.self).prefix(count)) }
+        // words() reads only this packet's own words. Packets are variable-length:
+        // copying p.pointee read a full 64 words, past the end of a short packet (v2.7).
+        let words = Array(p.words())
         var out: [UInt8] = []
         var i = 0
         while i < words.count {
@@ -266,17 +300,16 @@ final class PedalMIDI {
     /// Menu "Reconnect to Pedal": drop the current input and output and
     /// connect again from scratch, as if the pedal had just appeared.
     func reconnect() {
-        guard !searching else { return }
         if source != 0 { MIDIPortDisconnectSource(inPort, source) }
         source = 0; sourceName = nil; sourceConnectStatus = nil
         destination = 0; destinationName = nil
         outbox.removeAll()
+        sysex = []
         rescan()
         onConnectionChange()
     }
 
     func rescan() {
-        guard !searching else { return }
         let wanted = match.lowercased()
         let pick = exactName == nil ? autoPick.flatMap { Self.portNames().contains($0) ? $0 : nil } : nil
         let fits: (MIDIEndpointRef) -> Bool = { [exactName] ep in
@@ -300,6 +333,7 @@ final class PedalMIDI {
         if src == 0 { src = sources.first(where: fits) ?? 0 }
         if src != source {
             if source != 0 { MIDIPortDisconnectSource(inPort, source) }
+            sysex = []          // half a message from the old input must not swallow the new one's
             sourceConnectStatus = nil
             if src != 0 {
                 let st = MIDIPortConnectSource(inPort, src, nil)
@@ -316,14 +350,21 @@ final class PedalMIDI {
         if changed { onConnectionChange() }
     }
 
-    /// Queue one complete MIDI message (SysEx or short).
-    func send(_ bytes: [UInt8]) {
+    /// Queue one complete MIDI message (SysEx or short). A message with a `key`
+    /// replaces a waiting one with the same key, so a quick run of song changes
+    /// sends only the newest names instead of every one in between (v2.7).
+    func send(_ bytes: [UInt8], key: String? = nil) {
         guard destination != 0 else { return }
-        outbox.append(bytes)
+        Self.enqueue(&outbox, (key, bytes))
         if pump == nil {
             sendNext()
-            pump = Timer.scheduledTimer(withTimeInterval: Self.spacing, repeats: true) { [weak self] _ in self?.sendNext() }
+            pump = Timer.common(Self.spacing) { [weak self] in self?.sendNext() }
         }
+    }
+
+    static func enqueue(_ box: inout [Queued], _ item: Queued) {
+        if let key = item.key, let i = box.firstIndex(where: { $0.key == key }) { box[i].bytes = item.bytes }
+        else { box.append(item) }
     }
 
     var queued: Int { outbox.count }
@@ -343,7 +384,7 @@ final class PedalMIDI {
             pump?.invalidate(); pump = nil
             return
         }
-        let bytes = outbox.removeFirst()
+        let bytes = outbox.removeFirst().bytes
         let size = 1024
         let raw = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
         defer { raw.deallocate() }
@@ -358,20 +399,28 @@ final class PedalMIDI {
         }
     }
 
-    private func receive(_ bytes: [UInt8]) {
+    /// Splits incoming bytes into SysEx messages and CCs. Internal for --selftest.
+    func receive(_ bytes: [UInt8]) {
         onRaw(bytes)
         var i = 0
         while i < bytes.count {
             let b = bytes[i]
-            if b == 0xF0 { sysex = [b] }
-            else if b == 0xF7 {
+            if b >= 0xF8 { i += 1; continue }        // real-time bytes may interleave anywhere
+            if b == 0xF0 {
+                if !sysex.isEmpty { cutOffSysex += 1 }
+                sysex = [b]
+            } else if b == 0xF7 {
                 if !sysex.isEmpty { sysex.append(b); onSysex(sysex); sysex = [] }
-            } else if !sysex.isEmpty {
-                if b >= 0xF8 { i += 1; continue }    // real-time bytes may interleave
-                sysex.append(b)
-            } else if b & 0xF0 == 0xB0, i + 2 < bytes.count {
-                onControlChange(Int(b & 0x0F) + 1, Int(bytes[i + 1]), Int(bytes[i + 2]))
-                i += 3; continue
+            } else if b < 0x80 {
+                if !sysex.isEmpty { sysex.append(b) }
+            } else {
+                // Any other status byte ends an unfinished SysEx (MIDI 1.0): its F7
+                // never came. v2.7: it used to swallow the CCs that followed.
+                if !sysex.isEmpty { cutOffSysex += 1; sysex = [] }
+                if b & 0xF0 == 0xB0, i + 2 < bytes.count {
+                    onControlChange(Int(b & 0x0F) + 1, Int(bytes[i + 1]), Int(bytes[i + 2]))
+                    i += 3; continue
+                }
             }
             i += 1
         }

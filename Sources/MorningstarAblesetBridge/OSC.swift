@@ -66,19 +66,24 @@ struct OSCMessage {
     static func decode(_ data: Data) -> [OSCMessage] {
         let bytes = [UInt8](data)
         var out: [OSCMessage] = []
-        decode(bytes[...], into: &out)
+        decode(bytes[...], into: &out, depth: 0)
         return out
     }
 
-    private static func decode(_ b: ArraySlice<UInt8>, into out: inout [OSCMessage]) {
+    /// Bundles inside bundles go this deep at most. AbleSet's are flat; a deep
+    /// nest is junk, and decoding thousands of levels overflowed the stack (v2.7).
+    static let maxBundleDepth = 8
+
+    private static func decode(_ b: ArraySlice<UInt8>, into out: inout [OSCMessage], depth: Int) {
         let base = b.startIndex
         if b.count >= 16, b.starts(with: Array("#bundle".utf8) + [0]) {
+            guard depth < maxBundleDepth else { return }
             var i = base + 16
             while i + 4 <= b.endIndex {
                 let size = Int(readInt(b, i))
                 i += 4
                 guard size > 0, i + size <= b.endIndex else { return }
-                decode(b[i..<(i + size)], into: &out)
+                decode(b[i..<(i + size)], into: &out, depth: depth + 1)
                 i += size
             }
             return
@@ -114,7 +119,9 @@ struct OSCMessage {
     }
 
     private static func readString(_ b: ArraySlice<UInt8>, _ i: inout Int) -> String? {
-        guard let end = b[i...].firstIndex(of: 0) else { return nil }
+        // A packet cut short (or never padded) can leave `i` past the end, and
+        // slicing there crashed the app (v2.7).
+        guard i >= b.startIndex, i < b.endIndex, let end = b[i...].firstIndex(of: 0) else { return nil }
         let s = String(decoding: b[i..<end], as: UTF8.self)
         // Padding is relative to the slice start for nested bundle elements.
         let rel = end - b.startIndex
@@ -129,6 +136,7 @@ final class OSCTransport {
     var onMessages: ([OSCMessage]) -> Void = { _ in }
     private var fd: Int32 = -1
     private var source: DispatchSourceRead?
+    private var closed: DispatchSemaphore?
     private var destination = sockaddr_in()
     private let queue = DispatchQueue(label: "mab.osc")
 
@@ -169,16 +177,25 @@ final class OSCTransport {
         fd = s
 
         let src = DispatchSource.makeReadSource(fileDescriptor: s, queue: queue)
-        src.setEventHandler { [weak self] in self?.receive() }
-        src.setCancelHandler { Darwin.close(s) }
+        let done = DispatchSemaphore(value: 0)
+        src.setEventHandler { [weak self] in self?.receive(s) }
+        src.setCancelHandler { Darwin.close(s); done.signal() }
         src.resume()
         source = src
+        closed = done
     }
 
+    /// Stops listening and waits (up to a second) until the socket is really
+    /// closed, so reopening the same port straight away works. v2.7: "AbleSet
+    /// Ports… → Save" with the same listening port failed with MAB-202, because
+    /// the old socket closed a moment later. The wait can't deadlock: nothing on
+    /// `queue` waits for the main thread.
     func close() {
         source?.cancel()
         source = nil
         fd = -1
+        _ = closed?.wait(timeout: .now() + 1)
+        closed = nil
     }
 
     func send(_ message: OSCMessage) {
@@ -197,11 +214,13 @@ final class OSCTransport {
         }
     }
 
-    private func receive() {
+    /// `socket` is the one this read source watches (not `fd`, which the main
+    /// thread changes when the ports change).
+    private func receive(_ socket: Int32) {
         var buffer = [UInt8](repeating: 0, count: 65536)
         var batch: [OSCMessage] = []
         while true {
-            let n = recv(fd, &buffer, buffer.count, MSG_DONTWAIT)
+            let n = recv(socket, &buffer, buffer.count, MSG_DONTWAIT)
             if n <= 0 { break }
             batch += OSCMessage.decode(Data(buffer[0..<n]))
         }

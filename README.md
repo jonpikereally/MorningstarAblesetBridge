@@ -74,7 +74,9 @@ To ship an update: bump `VERSION`, write `RELEASE_NOTES.txt`, run `./release.sh`
 
 **Show on Pedal** (menu) switches the BPM, key and **current section** ("Red 125 (Am) - Chorus", shown only in section mode, on by default) on or off, and **Song Title with the Section**: switch it off and section mode shows the section alone ("Chorus 125 (Am)") (shown like `Red 125 (Am)`), separately for the current song (on the screen) and for the previous and next songs (C and D). AbleSet has no key field, so the key comes from, in order: `Key: Am` in the song's description (locator text like `Red {Key: Am}`), a description that's only the key (`Red {Am}`), a tag that looks like a key (`#Am`, `#F#`), or a key in brackets at the end of the name (`Red (Am)`). When none is found, the menu shows what AbleSet sent for the song. Titles longer than 16 characters are split over two lines on the screen (song on top, BPM / key / section below) using the pedal's `\n` line break for bank names; switch it off under **Split Long Titles over Two Lines**. Preset names (C and D) have no documented line break; the pedal shrinks their text to fit.
 
-In the menu, **Connect Bluetooth MIDI Device…** opens macOS's Bluetooth MIDI window (the same one as Audio MIDI Setup → MIDI Studio → Bluetooth): click **Connect** next to the MC4 PRO and the bridge picks it up. macOS asks once for Bluetooth permission. **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. **AbleSet Ports…** sets the OSC ports.
+In the menu, **Connect Bluetooth MIDI Device…** opens macOS's Bluetooth MIDI window (the same one as Audio MIDI Setup → MIDI Studio → Bluetooth): click **Connect** next to the MC4 PRO and the bridge picks it up. macOS asks once for Bluetooth permission. **Reconnect** reopens the pedal's MIDI connection and AbleSet's from scratch and rewrites the pedal's names; use it if the pedal stops updating. **Pedal MIDI Port** picks the pedal's port: **Find Pedal Automatically** asks every MIDI port a Morningstar question and uses the one that answers. You can also pick a port from the list or type its name. In automatic mode with several matching ports (USB shows Port 1–4), the bridge asks just those ports which one answers. If none does, it asks again after 5, 15 and 45 s, and again on **Reconnect**. **AbleSet Ports…** sets the OSC ports.
+
+The bridge keeps macOS from napping it (App Nap) so its messages to the pedal stay on time while another app is in front; the Mac can still sleep when idle.
 
 Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 
@@ -86,6 +88,8 @@ Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 | `ableSetPort` | 39051 | AbleSet's OSC port |
 | `ableSetHost` | 127.0.0.1 | AbleSet's computer |
 
+A port setting that isn't a port number (0 or above 65535) is ignored and the default is used.
+
 ## Things learned the hard way
 
 - On the MC4 PRO tested, colour numbers don't match Morningstar's published colour chart, for bank files and SysEx alike: 4, "yellow" in the chart, shows as very dark burgundy, and 14 is yellow. `--colourtest --sweep [--seconds N] [--from N]` steps LOOP through every number so you can see your own pedal's colours, and `--colourtest --show "NAME:bg:text:light,…"` shows chosen combinations.
@@ -94,6 +98,10 @@ Settings (`defaults write com.jonpike.morningstarablesetbridge <key> <value>`):
 - The pedal's SysEx replies only arrive through CoreMIDI's MIDI 1.0 *protocol* input API (`MIDIInputPortCreateWithProtocol`, SysEx as UMP type 3). The older packet-list API received nothing from the MC4 over Bluetooth.
 - The MC4 replies to "get current bank name" (0x30) with op2 `30`, not `21` as the docs say. Byte 5 of every reply is `01`.
 - Preset numbers in the SysEx API count across pages: page 2's A is preset 4. PRO-series names are 32 characters.
+- Over USB the MC4 PRO shows Ports 1–4. Only Port 4 answers SysEx; the switches' own messages (notes, CCs, the pedal's bank-change SysEx `F0 00 21 24 09 01 12 …`) showed up on Port 1.
+- A menu bar app's timers must run in the common run-loop modes: in the default mode alone they stop while the menu is open or an alert is showing. An alert shown from inside a `DispatchQueue.main` block is worse: no other main-queue block runs until it's closed, and every AbleSet update and pedal message arrives as one. Show such alerts via `RunLoop.main.perform` (v2.7).
+- `MIDIEventPacket` is variable-length: read its words with `packet.words()`. `packet.pointee` copies a full 64 words, past the end of a short packet.
+- Cancelling a `DispatchSource` closes its socket a moment later, on its queue. Wait for the cancel handler before binding the same port again, or the bind fails with "Address already in use".
 
 ## Errors
 

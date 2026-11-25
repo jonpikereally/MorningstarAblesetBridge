@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import CoreMIDI
 
 /// `--probe`: lists MIDI endpoints, asks the pedal who it is and what its
 /// switches are called, and prints every reply. Read-only unless `--write`,
@@ -262,6 +263,100 @@ enum SelfTest {
         let sub = OSCMessage(address: "/subscribe", args: [.string("127.0.0.1"), .int(39161), .string("MorningstarAblesetBridge")])
         let back = OSCMessage.decode(sub.encoded())
         check(back.first?.address == "/subscribe" && back.first?.args == sub.args, "OSC /subscribe round-trips")
+
+        // v2.7 stability fixes. Each of these crashed, froze or misbehaved before.
+        check(OSCMessage.decode(Data([0x2F, 0x61, 0, 0, 0x2C, 0x73, 0])).isEmpty, "a cut-off OSC packet is skipped, not a crash")
+        func bundle(_ inner: Data) -> Data {
+            var b = Data("#bundle".utf8) + Data(repeating: 0, count: 9)      // "#bundle\0" + 8-byte time tag
+            var n = UInt32(inner.count).bigEndian
+            b.append(Data(bytes: &n, count: 4)); b.append(inner)
+            return b
+        }
+        var nest = OSCMessage(address: "/x", args: []).encoded()
+        check(OSCMessage.decode(bundle(nest)).count == 1, "a bundle (as AbleSet sends them) still decodes")
+        for _ in 0..<3000 { nest = bundle(nest) }
+        check(OSCMessage.decode(nest).isEmpty, "bundles nested thousands deep are skipped, not a stack overflow")
+
+        var junk = SetState(); junk.songs = ["A", "B", "C"]; junk.songName = "A"
+        junk.apply(OSCMessage(address: "/setlist/activeSongIndex", args: [.float(.nan)]))
+        check(junk.songIndex == nil, "a NaN song index is ignored, not a crash")
+        junk.apply(OSCMessage(address: "/setlist/activeSongIndex", args: [.string("inf")]))
+        check(junk.songIndex == nil, "an infinite song index is ignored")
+        junk.apply(OSCMessage(address: "/setlist/activeSongIndex", args: [.int(-3)]))
+        check(junk.nextSong == nil && PedalView.messages(junk).count == 15, "a song index below -1 shows no next song, not a crash")
+        junk.apply(OSCMessage(address: "/global/tempo", args: [.float(1e30)]))
+        check(PedalView.bankTitle(junk, bpm: true, key: false) == "A", "an impossible tempo isn't shown")
+        check(PedalView.bpmText(1e30).hasPrefix("1"), "a huge number in bpmText doesn't crash")
+        check(Bridge.port(70_000, or: 39161) == 39161 && Bridge.port(-5, or: 39161) == 39161
+              && Bridge.port(0, or: 39161) == 39161 && Bridge.port(39162, or: 39161) == 39162,
+              "an impossible port number in the settings falls back to the default")
+
+        let pm = PedalMIDI()
+        var heard: [String] = []
+        pm.onControlChange = { _, n, v in heard.append("CC\(n)=\(v)") }
+        pm.onSysex = { _ in heard.append("SysEx") }
+        pm.receive([0xF0, 0x00, 0x21, 0x24, 0x09, 0x01, 0x70, 0x30])         // a reply whose F7 never came
+        pm.receive([0xB0, 0x6F, 0x00])                                       // then the bank's CC 111 = 0
+        check(heard == ["CC111=0"] && pm.cutOffSysex == 1, "a CC after an unfinished SysEx is still heard")
+        pm.receive([0xF0, 0x00, 0xF8, 0x21, 0xF7])
+        check(heard.last == "SysEx", "real-time bytes inside a SysEx are skipped and the SysEx still arrives")
+
+        var box: [PedalMIDI.Queued] = []
+        for item: PedalMIDI.Queued in [("bank", [1]), ("C0", [2]), (nil, [3]), ("bank", [4]), (nil, [5])] { PedalMIDI.enqueue(&box, item) }
+        check(box.map { $0.bytes } == [[4], [2], [3], [5]], "a newer message for the same switch replaces the waiting one")
+
+        var recent = RecentTitles(limit: 3)
+        for t in ["a", "b", "c", "b", "d"] { recent.insert(t) }
+        check(recent.all == ["b", "c", "d"], "only the newest bank titles are remembered")
+
+        let page = Int(getpagesize())
+        if let base = mmap(nil, page * 2, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0), base != MAP_FAILED {
+            mprotect(base + page, page, PROT_NONE)
+            let p = base + page - 20                  // a 2-word packet ending right where memory stops
+            p.storeBytes(of: UInt64(0), as: UInt64.self)
+            p.storeBytes(of: UInt32(2), toByteOffset: 8, as: UInt32.self)
+            p.storeBytes(of: UInt32(0x3006_0021), toByteOffset: 12, as: UInt32.self)   // SysEx7, complete, 6 bytes
+            p.storeBytes(of: UInt32(0x2409_0170), toByteOffset: 16, as: UInt32.self)
+            let got = PedalMIDI.bytes(fromUMP: UnsafePointer<MIDIEventPacket>(OpaquePointer(p)))
+            check(got == [0xF0, 0x00, 0x21, 0x24, 0x09, 0x01, 0x70, 0xF7], "MIDI packets are read only as far as their own words")
+            munmap(base, page * 2)
+        }
+
+        let osc = OSCTransport()
+        var reopened = false
+        if (try? osc.open(host: "127.0.0.1", sendPort: 39_878, listenPort: 39_877)) != nil {
+            osc.close()
+            reopened = (try? osc.open(host: "127.0.0.1", sendPort: 39_879, listenPort: 39_877)) != nil
+            osc.close()
+        }
+        check(reopened, "the listening port can be reopened straight away (AbleSet Ports… → Save)")
+
+        // The freeze: timers and main-queue work must keep going while the menu is
+        // open (event tracking) or an alert is showing (modal panel).
+        let app = NSApplication.shared                 // makes those run-loop modes "common"
+        app.setActivationPolicy(.prohibited)
+        func spin(_ mode: RunLoop.Mode, _ seconds: Double) {
+            let end = Date().addingTimeInterval(seconds)
+            while Date() < end { _ = RunLoop.current.run(mode: mode, before: end) }
+        }
+        var ticks = 0
+        let timer = Timer.common(0.02) { ticks += 1 }
+        spin(.eventTracking, 0.25)
+        let menuTicks = ticks
+        spin(.modalPanel, 0.25)
+        timer.invalidate()
+        check(menuTicks > 3 && ticks > menuTicks + 3, "timers keep running while the menu or an alert is open")
+        var duringAlert = -1
+        DispatchQueue.main.async {                     // like an update-check or Find Pedal completion
+            outsideMainQueue {
+                var drained = 0
+                for _ in 0..<5 { DispatchQueue.main.async { drained += 1 } }
+                spin(.modalPanel, 0.25)                // the alert it shows
+                duringAlert = drained
+            }
+        }
+        while duringAlert < 0 { spin(.default, 0.05) }
+        check(duringAlert == 5, "AbleSet and pedal messages keep flowing while an alert from a completion is open")
 
         print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
         return failures == 0 ? 0 : 1

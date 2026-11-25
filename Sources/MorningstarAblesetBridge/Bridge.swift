@@ -98,7 +98,7 @@ struct SetState: Equatable {
     /// (Jon, 2026-11-24), so it's only used when the setlist isn't known yet.
     var nextSong: String? {
         if let i = songIndex, !songs.isEmpty {
-            return i + 1 < songs.count ? songs[i + 1] : nil
+            return listed(songs, i + 1)     // v2.7: an index below -1 used to crash here
         }
         return nextName.isEmpty ? nil : nextName
     }
@@ -119,19 +119,26 @@ struct SetState: Equatable {
         case "/global/tempo": tempo = m.number
         case "/setlist/activeSongName": songName = m.text ?? ""
         case "/setlist/nextSongName": nextName = m.text ?? ""
-        case "/setlist/activeSongIndex": songIndex = m.number.map { Int($0) }
+        case "/setlist/activeSongIndex": songIndex = Self.index(m.number)
         case "/setlist/songs": songs = m.args.compactMap { $0.text }
         case "/setlist/activeSongDescription": songDescription = m.text ?? ""; songDescriptionFor = songName
         case "/setlist/activeSongTags": songTags = m.args.compactMap { $0.text }; songTagsFor = songName
         case "/setlist/nextSongDescription": nextDescription = m.text ?? ""; nextDescriptionFor = nextName
         case "/setlist/nextSongTags": nextTags = m.args.compactMap { $0.text }; nextTagsFor = nextName
         case "/setlist/sections": sections = m.args.compactMap { $0.text }
-        case "/setlist/activeSectionIndex": sectionIndex = m.number.map { Int($0) }
+        case "/setlist/activeSectionIndex": sectionIndex = Self.index(m.number)
         case "/setlist/activeSectionName": sectionName = m.text ?? ""
         case "/setlist/songTempos": songTempos = m.args.compactMap { $0.number }
         case "/setlist/songDescriptions": songDescriptions = m.args.map { $0.text ?? "" }
         default: break
         }
+    }
+
+    /// A song or section index from AbleSet, or nil when it isn't a sensible
+    /// whole number (v2.7: NaN, infinity or a huge value crashed the app).
+    static func index(_ value: Double?) -> Int? {
+        guard let value, value.isFinite, abs(value) < 1_000_000 else { return nil }
+        return Int(value)
     }
 }
 
@@ -162,12 +169,14 @@ enum PedalView {
     static var showSection: Bool { get { flag("showSection", true) } set { UserDefaults.standard.set(newValue, forKey: "showSection") } }
 
     static func bpmText(_ t: Double) -> String {
-        abs(t - t.rounded()) < 0.05 ? String(Int(t.rounded())) : String(format: "%.1f", t)
+        // Int(exactly:) instead of Int(): a huge or non-finite tempo crashed the app (v2.7).
+        if abs(t - t.rounded()) < 0.05, let whole = Int(exactly: t.rounded()) { return String(whole) }
+        return String(format: "%.1f", t)
     }
 
     static func label(_ name: String, tempo: Double?, key: String?, bpm showBPM: Bool, key showKey: Bool) -> String {
         var parts = [name]
-        if showBPM, let t = tempo { parts.append(bpmText(t)) }
+        if showBPM, let t = tempo, t.isFinite, t >= 0, t < 1000 { parts.append(bpmText(t)) }
         if showKey, let k = key { parts.append("(\(k))") }     // "Red 125 (Am)"
         return parts.joined(separator: " ")
     }
@@ -303,12 +312,20 @@ final class Bridge {
     private var sent: [String: [UInt8]] = [:]
     private var timers: [Timer] = []
     private var pollsUnanswered = 0
-    private var titlesSent: Set<String> = []    // bank names MorningstarAblesetBridge has written, as the pedal stores them
+    private var titlesSent = RecentTitles()     // bank names MorningstarAblesetBridge has written, as the pedal stores them
 
     private let defaults = UserDefaults.standard
     var host: String { defaults.string(forKey: "ableSetHost") ?? "127.0.0.1" }
-    var listenPort: UInt16 { UInt16(defaults.integer(forKey: "listenPort").nonZero ?? 39161) }
-    var ableSetPort: UInt16 { UInt16(defaults.integer(forKey: "ableSetPort").nonZero ?? 39051) }
+    var listenPort: UInt16 { Self.port(defaults.integer(forKey: "listenPort"), or: 39161) }
+    var ableSetPort: UInt16 { Self.port(defaults.integer(forKey: "ableSetPort"), or: 39051) }
+
+    /// A port from the settings, or the default when it's unset or not a port
+    /// number (v2.7: a typo like 391620 in `defaults write` crashed the app at
+    /// every launch).
+    static func port(_ value: Int, or fallback: UInt16) -> UInt16 {
+        guard let p = UInt16(exactly: value), p != 0 else { return fallback }
+        return p
+    }
 
     func start() {
         midi.match = defaults.string(forKey: "pedalName") ?? "MC4"
@@ -326,8 +343,8 @@ final class Bridge {
             subscribe()
         } catch let e as AppError { raise(e) } catch { raise(AppError(.unexpected, "\(error)")) }
 
-        timers.append(Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.checkAbleSet() })
-        timers.append(Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.pollPedal() })
+        timers.append(Timer.common(2) { [weak self] in self?.checkAbleSet() })
+        timers.append(Timer.common(1.5) { [weak self] in self?.pollPedal() })
         pedalConnectionChanged()
     }
 
@@ -352,7 +369,7 @@ final class Bridge {
         (msgs.filter { first.contains($0.address) } + msgs.filter { !first.contains($0.address) }).forEach { state.apply($0) }
         if state != before {
             if state.songName != before.songName, !state.songName.isEmpty, inBank == true {
-                midi.send(Morningstar.lcd(PedalView.bankTitle(state), tenths: 25))
+                midi.send(Morningstar.lcd(PedalView.bankTitle(state), tenths: 25), key: "lcd")
             }
             push()
         }
@@ -398,7 +415,7 @@ final class Bridge {
         if now {
             sent.removeAll()           // the pedal reset its names when the bank was entered
             push()
-            if !state.songName.isEmpty { midi.send(Morningstar.lcd(PedalView.bankTitle(state), tenths: 20)) }
+            if !state.songName.isEmpty { midi.send(Morningstar.lcd(PedalView.bankTitle(state), tenths: 20), key: "lcd") }
         }
         onChange()
     }
@@ -406,18 +423,39 @@ final class Bridge {
     // MARK: Pedal
 
     /// Automatic mode with several matching ports (USB: "MC4 Pro Port 1"-"Port 4"):
-    /// ask them all once and use the one that answers. Repeated whenever the
-    /// set of matching ports changes.
+    /// ask just those ports and use the one that answers. Repeated whenever the
+    /// set of matching ports changes, and on Reconnect. When none answers (the
+    /// pedal still starting up, say), it asks again after 5, 15 and 45 s
+    /// (v2.7: one failed search left the bridge on Port 1, which never answers).
     private var searchedFor: [String] = []
-    private func autoPickIfNeeded() {
+    private var autoSearchFailures = 0
+    private func autoPickIfNeeded(retry: Bool = false) {
         guard midi.exactName == nil else { return }
         let ports = midi.matchingPortNames()
-        guard ports.count > 1, ports != searchedFor else { return }
+        guard ports.count > 1, retry || ports != searchedFor else { return }
+        if !retry { autoSearchFailures = 0 }
         searchedFor = ports
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            guard let self, self.midi.exactName == nil else { return }
-            self.midi.search { [weak self] hits in
-                guard let self, let hit = hits.first(where: { ports.contains($0) }) else { return }
+            guard let self, self.midi.exactName == nil, self.searchedFor == ports else { return }
+            self.midi.search(only: Set(ports)) { [weak self] hits in
+                // A newer port list or a port picked by hand meanwhile: that wins.
+                guard let self, self.midi.exactName == nil, self.searchedFor == ports else { return }
+                guard let hit = hits.first(where: { ports.contains($0) }) else {
+                    self.autoSearchFailures += 1
+                    let waits: [Double] = [5, 15, 45]
+                    guard self.autoSearchFailures <= waits.count else {
+                        ErrorReporter.note("automatic port: none of \(ports.joined(separator: ", ")) answered; giving up until the ports change or Reconnect")
+                        return
+                    }
+                    let wait = waits[self.autoSearchFailures - 1]
+                    ErrorReporter.note("automatic port: none of \(ports.joined(separator: ", ")) answered; asking again in \(Int(wait)) s")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                        guard let self, self.searchedFor == ports else { return }
+                        self.autoPickIfNeeded(retry: true)
+                    }
+                    return
+                }
+                self.autoSearchFailures = 0
                 if self.midi.autoPick != hit {
                     ErrorReporter.note("automatic port: \(hit) answers SysEx (of \(ports.joined(separator: ", ")))")
                     self.midi.autoPick = hit
@@ -463,7 +501,7 @@ final class Bridge {
                                                  midi.destinationName ?? "?", silent, pollsUnanswered - 1,
                                                  state.playing ? "playing" : "stopped")))
         }
-        midi.send(Morningstar.currentBankName())
+        midi.send(Morningstar.currentBankName(), key: "poll")
     }
 
     // MARK: Diagnostics (written to the log when replies stop and start again)
@@ -487,14 +525,16 @@ final class Bridge {
             + ", \(midi.callbacks) input callbacks; all inputs: " + PedalMIDI.endpoints(sources: true).map(PedalMIDI.name).joined(separator: " | ")
         let lines = ["diagnostics: \(what) — pedal \(midi.destinationName ?? "?"), \(input), AbleSet \(state.playing ? "playing" : "stopped"), "
                      + "in-bank \(inBank.map { "\($0)" } ?? "unknown"), received \(rxChunks) chunks, \(rxReplies) good replies, "
-                     + "\(rxBadSysex) garbled SysEx, \(pollsUnanswered) unanswered requests, outbox \(midi.queued)",
+                     + "\(rxBadSysex) garbled SysEx, \(midi.cutOffSysex) cut off, \(pollsUnanswered) unanswered requests, outbox \(midi.queued)",
                      "last pedal traffic:"] + recentRx.map { "  " + $0 }
         ErrorReporter.note(lines.joined(separator: "\n"))
     }
 
     private func pedalSysex(_ bytes: [UInt8]) {
         guard let r = Morningstar.parse(bytes) else {
-            if bytes.count >= 4, bytes[1] == 0x00, bytes[2] == 0x21, bytes[3] == 0x24 { rxBadSysex += 1 }
+            // Only a damaged reply counts. The pedal's own bank-change message
+            // (F0 00 21 24 09 01 12 …) isn't one, and was counted until v2.7.
+            if bytes.count >= 7, bytes[1] == 0x00, bytes[2] == 0x21, bytes[3] == 0x24, bytes[6] == 0x70 { rxBadSysex += 1 }
             return
         }
         rxReplies += 1
@@ -518,11 +558,11 @@ final class Bridge {
             strangeReplies = 0
             state.sectionMode = false          // the bank's saved name: just entered, so on page 1
             // Freshly entered (or re-entered between polls): the pedal shows the saved names again.
-            if inBank != true { setInBank(true) } else if sent["bank"] != nil, !titlesSent.contains(name) { sent.removeAll(); push() }
+            if inBank != true { setInBank(true) } else if sent["bank"] != nil, !titlesSent.all.contains(name) { sent.removeAll(); push() }
         } else {
             // A title this copy wrote, or one any copy (another Mac, an earlier run) would
             // write: "<a song in the setlist> <tempo>".
-            if Self.isOurTitle(name, sent: titlesSent, current: Self.stored(PedalView.screenTitle(state)), songs: state.songs + state.sections) {
+            if Self.isOurTitle(name, sent: titlesSent.all, current: Self.stored(PedalView.screenTitle(state)), songs: state.songs + state.sections) {
                 strangeReplies = 0
                 setInBank(true)
             } else if inBank == true {
@@ -571,7 +611,7 @@ final class Bridge {
         guard midi.isConnected, inBank == true, ableSetAlive else { return }
         titlesSent.insert(Self.stored(PedalView.screenTitle(state)))
         for (key, bytes) in PedalView.messages(state) where sent[key] != bytes {
-            midi.send(bytes)
+            midi.send(bytes, key: key)
             sent[key] = bytes
         }
     }
@@ -626,11 +666,12 @@ final class Bridge {
     /// on; the names are rewritten as soon as it answers with the bridge bank.
     func reconnect() {
         problems.removeAll()
+        searchedFor = []            // ask the pedal's ports again which one answers
         midi.reconnect()
         pedalConnectionChanged()
         lastAbleSet = Date()
         subscribe()
-        if midi.isConnected { midi.send(Morningstar.currentBankName()) }
+        if midi.isConnected { midi.send(Morningstar.currentBankName(), key: "poll") }
         onChange()
     }
 
@@ -658,6 +699,18 @@ final class Bridge {
     }
 }
 
-private extension Int {
-    var nonZero: Int? { self == 0 ? nil : self }
+/// The bank titles written lately, as the pedal stores them. Only the newest
+/// `limit` are kept (v2.7: the set grew with every song, tempo and section,
+/// and the whole set was compared on every pedal poll).
+struct RecentTitles {
+    let limit: Int
+    private(set) var all: Set<String> = []
+    private var order: [String] = []
+    init(limit: Int = 200) { self.limit = limit }
+
+    mutating func insert(_ title: String) {
+        guard all.insert(title).inserted else { return }
+        order.append(title)
+        if order.count > limit { all.remove(order.removeFirst()) }
+    }
 }
