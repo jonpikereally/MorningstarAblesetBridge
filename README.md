@@ -22,6 +22,8 @@ It reads AbleSet's state over OSC and drives the pedal with Morningstar's [SysEx
 
 ## Install
 
+Needs an Apple silicon Mac (M1 or later) with macOS 13 or later.
+
 1. Download **[MorningstarAblesetBridge.zip](https://github.com/jonpikereally/MorningstarAblesetBridge/raw/main/updates/MorningstarAblesetBridge.zip)** and unzip it.
 2. Double-click **Install MorningstarAblesetBridge.command**. If macOS blocks it, right-click it, choose **Open**, then **Open** again.
 3. Look for **MC4** in the menu bar. The app checks this repo for updates on its own (menu → Check for Updates…).

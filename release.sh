@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Build a release: universal (Apple Silicon + Intel) app with an installer,
+# Build a release: Apple silicon app (no Intel slice since v2.8) with an installer,
 # written to updates/MorningstarAblesetBridge.zip + updates/latest.json. Committing and
 # pushing updates/ ships it: every installed copy's "Check for Updates" reads
 # latest.json from this repo on GitHub.
@@ -34,16 +34,12 @@ mkdir -p "$CACHE"
 echo "Building arm64…"
 swiftc -O -target arm64-apple-macos13 -module-cache-path "$CACHE" \
   -o "$CACHE/MorningstarAblesetBridge-arm64" Sources/MorningstarAblesetBridge/*.swift
-echo "Building x86_64…"
-swiftc -O -target x86_64-apple-macos13 -module-cache-path "$CACHE-x86" \
-  -o "$CACHE/MorningstarAblesetBridge-x86_64" Sources/MorningstarAblesetBridge/*.swift
 
 DIST="$CACHE/dist"
 rm -rf "$DIST"
 APP="$DIST/MorningstarAblesetBridge/MorningstarAblesetBridge.app"
 mkdir -p "$APP/Contents/MacOS"
-lipo -create -output "$APP/Contents/MacOS/MorningstarAblesetBridge" \
-  "$CACHE/MorningstarAblesetBridge-arm64" "$CACHE/MorningstarAblesetBridge-x86_64"
+cp "$CACHE/MorningstarAblesetBridge-arm64" "$APP/Contents/MacOS/MorningstarAblesetBridge"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
@@ -80,7 +76,7 @@ chmod +x "$DIST/MorningstarAblesetBridge/Install MorningstarAblesetBridge.comman
 
 cat > "$DIST/MorningstarAblesetBridge/README.txt" <<README
 MorningstarAblesetBridge v$VERSION — AbleSet song names and play/loop state on a
-Morningstar MC4 PRO footswitch (macOS 13+)
+Morningstar MC4 PRO footswitch (Apple silicon Mac, macOS 13+)
 https://github.com/jonpikereally/MorningstarAblesetBridge
 
 INSTALL
